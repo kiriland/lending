@@ -65,16 +65,12 @@ pub fn process_deposit(
 
     let user = &mut context.accounts.user_account;
 
-    match context.accounts.mint.to_account_info().key() {
-        key if key == user.usdc_address => {
-            user.deposited_usdc = amount;
-            user.deposited_usdc_shares = user_shares;
-        }
-        _ => {
-            user.deposited_sol = amount;
-            user.deposited_sol_shares = user_shares;
-        }
-    }
+    let balance = user
+        .get_balance_or_create(&context.accounts.mint.key())
+        .unwrap();
+    balance.token_mint_address = context.accounts.mint.key();
+    balance.change_deposited_shares(user_shares)?;
+    balance.deposited += amount;
     bank.total_deposits += amount;
     bank.total_deposits_shares += user_shares;
 

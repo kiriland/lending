@@ -51,16 +51,14 @@ pub fn process_withdraw(
     context: Context<Withdraw>,
     amount: u64,
 ) -> Result<()> {
-    let deposited_value : u64;
     let user = &mut context.accounts.user_account;
     let bank = &mut context.accounts.bank;
-    if context.accounts.mint.to_account_info().key() == user.usdc_address {
-        deposited_value = user.deposited_usdc;
-    } else {
-        deposited_value = user.deposited_sol;
-    }
-    let time_diff = user.last_updated_deposit - Clock::get()?.unix_timestamp;
-
+    let last_updated_deposit = user.last_updated_deposit;
+    let balance = user
+        .get_balance(&context.accounts.mint.to_account_info().key())
+        .unwrap();
+    let deposited_value = balance.deposited;
+    let time_diff = last_updated_deposit - Clock::get()?.unix_timestamp;
     bank.total_deposits = (bank.total_deposits as f64 * E.powf(bank.interest_rate as f64 * time_diff as f64)) as u64;
 
     let value_per_share = bank.total_deposits as f64 / bank.total_deposits_shares as f64;
@@ -97,13 +95,9 @@ pub fn process_withdraw(
     
     let shares_to_remove = (amount as f64  / bank.total_deposits as f64) * bank.total_deposits_shares as f64;
     
-    if context.accounts.mint.to_account_info().key() == user.usdc_address {
-        user.deposited_usdc -= amount;
-        user.deposited_usdc_shares -= shares_to_remove as u64;
-    } else {
-        user.deposited_sol -= amount;
-        user.deposited_sol_shares -= shares_to_remove as u64;
-    }
+    balance.deposited -= amount;
+    balance.deposited_shares -= shares_to_remove as u64;
+    
 
     bank.total_deposits -= amount;
     bank.total_deposits_shares -= shares_to_remove as u64;

@@ -10,4 +10,10 @@ pub enum ErrorCode {
     OverRepayableAmount,
     #[msg("Not Under Collateralized, liquidation not possible")]
     NotUnderCollateralized,
+    #[msg("Overflow")]
+    Overflow,
+    #[msg("No Empty Balance")]
+    NoEmptyBalance,
+    #[msg("Invalid Token Mint Address")]
+    InvalidCollateralMint,
 }

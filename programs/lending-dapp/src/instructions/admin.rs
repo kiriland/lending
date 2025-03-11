@@ -54,16 +54,15 @@ pub fn process_init_bank(
 ) -> Result<()> {
     let bank = &mut context.accounts.bank;
     bank.authority = context.accounts.signer.key();
-    bank.mint_address = context.accounts.mint.key();
+    bank.token_mint_address = context.accounts.mint.key();
     bank.liquidation_threshold = liquidation_threshold;
     bank.max_ltv = max_ltv;
     bank.interest_rate = 0.05 as u64;
     Ok(())
 }
 
-pub fn process_init_user(context: Context<InitUser>, usdc_address: Pubkey) -> Result<()> {
+pub fn process_init_user(context: Context<InitUser>) -> Result<()> {
     let user_account = &mut context.accounts.user_account;
     user_account.owner = context.accounts.signer.key();
-    user_account.usdc_address = usdc_address;
     Ok(())
 }

@@ -48,16 +48,12 @@ pub struct Repay<'info> {
 pub fn process_repay(context: Context<Repay>, amount: u64) -> Result<()> {
     let user = &mut context.accounts.user_account;
     let bank = &mut context.accounts.bank;
-    let borrowed_value: u64;
-    match context.accounts.mint.to_account_info().key() {
-        key if key == user.usdc_address => {
-            borrowed_value = user.borrowed_usdc;
-        }
-        _ => {
-            borrowed_value = user.borrowed_sol;
-        }
-    }
-    let time_diff = user.last_updated_borrow - Clock::get()?.unix_timestamp;
+    let last_updated_borrow = user.last_updated_borrow;
+    let balance = user
+        .get_balance(&context.accounts.mint.to_account_info().key())
+        .unwrap();
+    let borrowed_value = balance.borrowed;
+    let time_diff = last_updated_borrow - Clock::get()?.unix_timestamp;
     bank.total_borrowed +=
         (bank.total_borrowed as f64 * E.powf(bank.interest_rate as f64 * time_diff as f64)) as u64;
     let value_per_share = bank.total_borrowed as f64 / bank.total_borrowed_shares as f64;
@@ -78,16 +74,8 @@ pub fn process_repay(context: Context<Repay>, amount: u64) -> Result<()> {
         .total_borrowed_shares
         .checked_mul(borrow_ratio)
         .unwrap();
-    match context.accounts.mint.to_account_info().key() {
-        key if key == user.usdc_address => {
-            user.borrowed_usdc -= amount;
-            user.borrowed_usdc_shares -= user_shares;
-        }
-        _ => {
-            user.borrowed_sol -= amount;
-            user.borrowed_sol_shares -= user_shares;
-        }
-    }
+    balance.borrowed -= amount;
+    balance.borrowed_shares -= user_shares as u64;
     bank.total_borrowed -= amount;
     bank.total_borrowed_shares -= user_shares;
     Ok(())

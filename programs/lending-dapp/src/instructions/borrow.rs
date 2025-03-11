@@ -56,28 +56,43 @@ pub fn process_borrow(context: Context<Borrow>, amount: u64) -> Result<()> {
     let price_update = &mut context.accounts.price_update;
 
     let total_collateral: u64;
-    match context.accounts.mint.to_account_info().key() {
-        key if key == user.usdc_address => {
-            let sol_feed_id = get_feed_id_from_hex(SOL_USD_FEED_ID)?;
-            let sol_price =
-                price_update.get_price_no_older_than(&Clock::get()?, MAX_AGE, &sol_feed_id)?;
-            let new_value = calculate_accrued_interest(
-                user.deposited_sol,
-                bank.interest_rate,
-                user.last_updated_deposit,
-            )?;
-            total_collateral = sol_price.price as u64 * new_value;
-        }
-        _ => {
+
+    let mint = context.accounts.mint.to_account_info().key();
+    let mint_key_str = mint.to_string();
+    // Assuming that the first two characters of the mint address are DC for USDC, OL for SOL, and DT for USDT
+    match mint_key_str.get(0..2) {
+        Some("ol") => {
+            let usdc_balance = user
+                .balances
+                .iter_mut()
+                .find(|balance| balance.token_mint_address.to_string().starts_with("dc"))
+                .unwrap();
             let usdc_feed_id = get_feed_id_from_hex(USDC_USD_FEED_ID)?;
             let usdc_price =
                 price_update.get_price_no_older_than(&Clock::get()?, MAX_AGE, &usdc_feed_id)?;
             let new_value = calculate_accrued_interest(
-                user.deposited_usdc,
+                usdc_balance.deposited,
                 bank.interest_rate,
                 user.last_updated_deposit,
             )?;
             total_collateral = usdc_price.price as u64 * new_value;
+        }
+        // Works for USDC and USDT
+        _ => {
+            let sol_balance = user
+                .balances
+                .iter_mut()
+                .find(|balance| balance.token_mint_address.to_string().starts_with("ol"))
+                .unwrap();
+            let sol_feed_id = get_feed_id_from_hex(SOL_USD_FEED_ID)?;
+            let sol_price =
+                price_update.get_price_no_older_than(&Clock::get()?, MAX_AGE, &sol_feed_id)?;
+            let new_value = calculate_accrued_interest(
+                sol_balance.deposited,
+                bank.interest_rate,
+                user.last_updated_deposit,
+            )?;
+            total_collateral = sol_price.price as u64 * new_value;
         }
     }
     let borrowable_amount = total_collateral
@@ -115,16 +130,12 @@ pub fn process_borrow(context: Context<Borrow>, amount: u64) -> Result<()> {
         .checked_mul(borrow_ratio)
         .unwrap();
 
-    match context.accounts.mint.to_account_info().key() {
-        key if key == user.usdc_address => {
-            user.borrowed_usdc = amount;
-            user.borrowed_usdc_shares = user_shares;
-        }
-        _ => {
-            user.borrowed_sol = amount;
-            user.borrowed_sol_shares = user_shares;
-        }
-    }
+    let balance = user
+        .get_balance(&context.accounts.mint.to_account_info().key())
+        .unwrap();
+    balance.borrowed = amount;
+    balance.borrowed_shares = user_shares as u64;
+
     user.last_updated_borrow = Clock::get()?.unix_timestamp;
     Ok(())
 }

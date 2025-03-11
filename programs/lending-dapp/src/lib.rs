@@ -24,8 +24,8 @@ pub mod lending_dapp {
     ) -> Result<()> {
         instructions::admin::process_init_bank(context, liquidation_threshold, max_ltv)
     }
-    pub fn init_user(context: Context<InitUser>, usdc_address: Pubkey) -> Result<()> {
-        instructions::admin::process_init_user(context, usdc_address)
+    pub fn init_user(context: Context<InitUser>) -> Result<()> {
+        instructions::admin::process_init_user(context)
     }
     pub fn deposit(context: Context<Deposit>, amount: u64) -> Result<()> {
         instructions::deposit::process_deposit(context, amount)

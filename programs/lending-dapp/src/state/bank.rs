@@ -4,7 +4,7 @@ use anchor_lang::prelude::*;
 #[derive(InitSpace)]
 pub struct Bank {
     pub authority: Pubkey,
-    pub mint_address: Pubkey,
+    pub token_mint_address: Pubkey,
     pub total_deposits: u64,
     pub total_deposits_shares: u64,
 
