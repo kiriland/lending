@@ -21,8 +21,16 @@ pub mod lending_dapp {
         context: Context<InitBank>,
         liquidation_threshold: u64,
         max_ltv: u64,
+        oracle_key: String,
+        ticker_symbol: String,
     ) -> Result<()> {
-        instructions::admin::process_init_bank(context, liquidation_threshold, max_ltv)
+        instructions::admin::process_init_bank(
+            context,
+            liquidation_threshold,
+            max_ltv,
+            oracle_key.as_str(),
+            ticker_symbol,
+        )
     }
     pub fn init_user(context: Context<InitUser>) -> Result<()> {
         instructions::admin::process_init_user(context)

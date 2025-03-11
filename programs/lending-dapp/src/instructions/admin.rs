@@ -2,6 +2,7 @@ use anchor_lang::prelude::*;
 use anchor_spl::token_interface::{Mint, TokenAccount, TokenInterface};
 
 use crate::{Bank, User, ANCHOR_DISCRIMINATOR};
+use pyth_solana_receiver_sdk::price_update::get_feed_id_from_hex;
 
 #[derive(Accounts)]
 pub struct InitBank<'info> {
@@ -51,6 +52,8 @@ pub fn process_init_bank(
     context: Context<InitBank>,
     liquidation_threshold: u64,
     max_ltv: u64,
+    oracle_feed_id_hex: &str,
+    ticker_symbol: String,
 ) -> Result<()> {
     let bank = &mut context.accounts.bank;
     bank.authority = context.accounts.signer.key();
@@ -58,6 +61,8 @@ pub fn process_init_bank(
     bank.liquidation_threshold = liquidation_threshold;
     bank.max_ltv = max_ltv;
     bank.interest_rate = 0.05 as u64;
+    bank.config.oracle_feed_id = get_feed_id_from_hex(oracle_feed_id_hex)?;
+    bank.config.ticker_symbol = ticker_symbol;
     Ok(())
 }
 

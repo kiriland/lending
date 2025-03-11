@@ -7,7 +7,6 @@ pub struct Bank {
     pub token_mint_address: Pubkey,
     pub total_deposits: u64,
     pub total_deposits_shares: u64,
-
     pub total_borrowed: u64,
     pub total_borrowed_shares: u64,
     pub liquidation_threshold: u64,
@@ -16,4 +15,20 @@ pub struct Bank {
     pub max_ltv: u64,
     pub last_updated: i64,
     pub interest_rate: u64,
+    pub config: BankConfig,
+}
+
+#[derive(AnchorSerialize, InitSpace, AnchorDeserialize, Clone)]
+pub struct BankConfig {
+    pub oracle_feed_id: [u8; 32],
+    #[max_len(5)]
+    pub ticker_symbol: String,
+}
+impl Default for BankConfig {
+    fn default() -> Self {
+        Self {
+            oracle_feed_id: [0; 32],
+            ticker_symbol: String::default(),
+        }
+    }
 }

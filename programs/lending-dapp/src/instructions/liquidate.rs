@@ -1,11 +1,11 @@
 use crate::error::ErrorCode;
-use crate::{Bank, User, MAX_AGE, SOL_USD_FEED_ID, USDC_USD_FEED_ID};
+use crate::{Bank, User, MAX_AGE};
 use anchor_lang::prelude::*;
 use anchor_spl::{
     associated_token::AssociatedToken,
     token_interface::{transfer_checked, Mint, TokenAccount, TokenInterface, TransferChecked},
 };
-use pyth_solana_receiver_sdk::price_update::{get_feed_id_from_hex, PriceUpdateV2};
+use pyth_solana_receiver_sdk::price_update::PriceUpdateV2;
 
 use super::{calculate_accrued_interest, transfer_tokens};
 
@@ -71,83 +71,40 @@ pub fn process_liquidate(context: Context<Liquidate>) -> Result<()> {
     let borrowed_bank = &mut context.accounts.borrowed_bank;
     let liquidator_account = &mut context.accounts.liquidator_account;
     let price_update = &mut context.accounts.price_update;
-    let sol_feed_id = get_feed_id_from_hex(SOL_USD_FEED_ID)?;
-    let sol_price = price_update.get_price_no_older_than(&Clock::get()?, MAX_AGE, &sol_feed_id)?;
-    let usdc_feed_id = get_feed_id_from_hex(USDC_USD_FEED_ID)?;
-    let usdc_price =
-        price_update.get_price_no_older_than(&Clock::get()?, MAX_AGE, &usdc_feed_id)?;
-    let usdt_feed_id = get_feed_id_from_hex(USDC_USD_FEED_ID)?;
-    let usdt_price =
-        price_update.get_price_no_older_than(&Clock::get()?, MAX_AGE, &usdt_feed_id)?;
+    let borrowed_price = price_update.get_price_no_older_than(
+        &Clock::get()?,
+        MAX_AGE,
+        &borrowed_bank.config.oracle_feed_id,
+    )?;
+    let collateral_price = price_update.get_price_no_older_than(
+        &Clock::get()?,
+        MAX_AGE,
+        &collateral_bank.config.oracle_feed_id,
+    )?;
     let total_collateral: u64;
     let total_borrowed: u64;
     let collateral_mint = context.accounts.collateral_mint.to_account_info().key();
     let borrowed_mint = context.accounts.borrowed_mint.to_account_info().key();
-    let collateral_mint_key_str = collateral_mint.to_string();
-    match collateral_mint_key_str.get(0..2) {
-        Some("dc") => {
-            let new_usdc = calculate_accrued_interest(
-                liquidator_account
-                    .get_balance(&collateral_mint)
-                    .unwrap()
-                    .deposited,
-                collateral_bank.interest_rate,
-                liquidator_account.last_updated_deposit,
-            )?;
-            total_collateral = usdc_price.price as u64 * new_usdc;
-            let new_sol = calculate_accrued_interest(
-                liquidator_account
-                    .get_balance(&borrowed_mint)
-                    .unwrap()
-                    .borrowed,
-                borrowed_bank.interest_rate,
-                liquidator_account.last_updated_borrow,
-            )?;
-            total_borrowed = sol_price.price as u64 * new_sol;
-        }
-        Some("ol") => {
-            let new_sol = calculate_accrued_interest(
-                liquidator_account
-                    .get_balance(&collateral_mint)
-                    .unwrap()
-                    .deposited,
-                collateral_bank.interest_rate,
-                liquidator_account.last_updated_deposit,
-            )?;
-            total_collateral = sol_price.price as u64 * new_sol;
-            let new_usdc = calculate_accrued_interest(
-                liquidator_account
-                    .get_balance(&borrowed_mint)
-                    .unwrap()
-                    .borrowed,
-                borrowed_bank.interest_rate,
-                liquidator_account.last_updated_borrow,
-            )?;
-            total_borrowed = usdc_price.price as u64 * new_usdc;
-        }
-        Some("dt") => {
-            let new_usdt = calculate_accrued_interest(
-                liquidator_account
-                    .get_balance(&collateral_mint)
-                    .unwrap()
-                    .deposited,
-                collateral_bank.interest_rate,
-                liquidator_account.last_updated_deposit,
-            )?;
-            total_collateral = usdt_price.price as u64 * new_usdt;
 
-            let new_sol = calculate_accrued_interest(
-                liquidator_account
-                    .get_balance(&borrowed_mint)
-                    .unwrap()
-                    .borrowed,
-                borrowed_bank.interest_rate,
-                liquidator_account.last_updated_borrow,
-            )?;
-            total_borrowed = sol_price.price as u64 * new_sol;
-        }
-        _ => return Err(ErrorCode::InvalidCollateralMint.into()),
-    }
+    let new_collateral_amount = calculate_accrued_interest(
+        liquidator_account
+            .get_balance(&collateral_mint)
+            .unwrap()
+            .deposited,
+        collateral_bank.interest_rate,
+        liquidator_account.last_updated_deposit,
+    )?;
+    total_collateral = collateral_price.price as u64 * new_collateral_amount;
+    let new_borrowed_amount = calculate_accrued_interest(
+        liquidator_account
+            .get_balance(&borrowed_mint)
+            .unwrap()
+            .borrowed,
+        borrowed_bank.interest_rate,
+        liquidator_account.last_updated_borrow,
+    )?;
+    total_borrowed = borrowed_price.price as u64 * new_borrowed_amount;
+
     let health_factor = total_collateral as f64 * collateral_bank.liquidation_threshold as f64
         / total_borrowed as f64;
     if health_factor >= 1.0 {

@@ -57,15 +57,13 @@ pub fn process_borrow(context: Context<Borrow>, amount: u64) -> Result<()> {
 
     let total_collateral: u64;
 
-    let mint = context.accounts.mint.to_account_info().key();
-    let mint_key_str = mint.to_string();
     // Assuming that the first two characters of the mint address are DC for USDC, OL for SOL, and DT for USDT
-    match mint_key_str.get(0..2) {
-        Some("ol") => {
+    match bank.config.ticker_symbol.as_str() {
+        "SOL" => {
             let usdc_balance = user
                 .balances
                 .iter_mut()
-                .find(|balance| balance.token_mint_address.to_string().starts_with("dc"))
+                .find(|balance| balance.token_mint_address.to_string().as_str() == "USDC")
                 .unwrap();
             let usdc_feed_id = get_feed_id_from_hex(USDC_USD_FEED_ID)?;
             let usdc_price =
@@ -77,12 +75,12 @@ pub fn process_borrow(context: Context<Borrow>, amount: u64) -> Result<()> {
             )?;
             total_collateral = usdc_price.price as u64 * new_value;
         }
-        // Works for USDC and USDT
+        // Works for USDC and USDT. Constrain: SOL can only be borrowed with USDC collateral, and everything else can only be borrowed with SOL collateral
         _ => {
             let sol_balance = user
                 .balances
                 .iter_mut()
-                .find(|balance| balance.token_mint_address.to_string().starts_with("ol"))
+                .find(|balance| balance.token_mint_address.to_string().as_str() == "SOL")
                 .unwrap();
             let sol_feed_id = get_feed_id_from_hex(SOL_USD_FEED_ID)?;
             let sol_price =
