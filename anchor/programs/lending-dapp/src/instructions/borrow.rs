@@ -91,7 +91,7 @@ pub fn process_borrow(context: Context<Borrow>, amount: u64) -> Result<()> {
                 .unwrap();
             let sol_feed_id = get_feed_id_from_hex(SOL_USD_FEED_ID)?;
             let sol_price =
-                price_update.get_price_no_older_than(&Clock::get()?, 1555, &sol_feed_id)?;
+                price_update.get_price_no_older_than(&Clock::get()?, MAX_AGE, &sol_feed_id)?;
             let new_value = calculate_accrued_interest(
                 sol_balance.deposited,
                 bank.interest_rate,
