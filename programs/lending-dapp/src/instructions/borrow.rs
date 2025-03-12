@@ -15,17 +15,17 @@ use super::calculate_accrued_interest;
 pub struct Borrow<'info> {
     #[account(mut)]
     pub signer: Signer<'info>,
-
-    mint: InterfaceAccount<'info, Mint>,
+    pub collateral_mint: InterfaceAccount<'info, Mint>,
+    pub borrow_mint: InterfaceAccount<'info, Mint>,
     #[account(
         mut,
-        seeds = [mint.key().as_ref()],
+        seeds = [borrow_mint.key().as_ref()],
         bump,
     )]
-    pub bank: Account<'info, Bank>,
+    pub borrow_bank: Account<'info, Bank>,
     #[account(
         mut,
-        seeds = [b"treasury", mint.key().as_ref()],
+        seeds = [b"treasury", borrow_mint.key().as_ref()],
         bump,
     )]
     pub bank_token_account: InterfaceAccount<'info, TokenAccount>,
@@ -36,9 +36,15 @@ pub struct Borrow<'info> {
     )]
     pub user_account: Account<'info, User>,
     #[account(
+        mut,
+        seeds = [collateral_mint.key().as_ref()],
+        bump,
+    )]
+    pub collateral_bank: Account<'info, Bank>,
+    #[account(
         init_if_needed,
         payer = signer,
-        associated_token::mint = mint,
+        associated_token::mint = borrow_mint,
         associated_token::authority = signer,
         associated_token::token_program = token_program,
     )]
@@ -50,20 +56,21 @@ pub struct Borrow<'info> {
 }
 
 pub fn process_borrow(context: Context<Borrow>, amount: u64) -> Result<()> {
-    let bank = &mut context.accounts.bank;
+    let bank = &mut context.accounts.borrow_bank;
     let user = &mut context.accounts.user_account;
 
     let price_update = &mut context.accounts.price_update;
 
     let total_collateral: u64;
 
-    // Assuming that the first two characters of the mint address are DC for USDC, OL for SOL, and DT for USDT
     match bank.config.ticker_symbol.as_str() {
         "SOL" => {
             let usdc_balance = user
                 .balances
                 .iter_mut()
-                .find(|balance| balance.token_mint_address.to_string().as_str() == "USDC")
+                .find(|balance: &&mut crate::Balance| {
+                    balance.bank_address == context.accounts.collateral_bank.key()
+                })
                 .unwrap();
             let usdc_feed_id = get_feed_id_from_hex(USDC_USD_FEED_ID)?;
             let usdc_price =
@@ -80,11 +87,11 @@ pub fn process_borrow(context: Context<Borrow>, amount: u64) -> Result<()> {
             let sol_balance = user
                 .balances
                 .iter_mut()
-                .find(|balance| balance.token_mint_address.to_string().as_str() == "SOL")
+                .find(|balance| balance.bank_address == context.accounts.collateral_bank.key())
                 .unwrap();
             let sol_feed_id = get_feed_id_from_hex(SOL_USD_FEED_ID)?;
             let sol_price =
-                price_update.get_price_no_older_than(&Clock::get()?, MAX_AGE, &sol_feed_id)?;
+                price_update.get_price_no_older_than(&Clock::get()?, 1555, &sol_feed_id)?;
             let new_value = calculate_accrued_interest(
                 sol_balance.deposited,
                 bank.interest_rate,
@@ -101,14 +108,14 @@ pub fn process_borrow(context: Context<Borrow>, amount: u64) -> Result<()> {
     }
     let seeds = &[
         b"treasury",
-        context.accounts.mint.to_account_info().key.as_ref(),
+        context.accounts.borrow_mint.to_account_info().key.as_ref(),
         &[context.bumps.bank_token_account],
     ];
     let signer_seeds = [&seeds[..]];
     let accounts = TransferChecked {
         from: context.accounts.bank_token_account.to_account_info(),
         to: context.accounts.user_token_account.to_account_info(),
-        mint: context.accounts.mint.to_account_info(),
+        mint: context.accounts.borrow_mint.to_account_info(),
         authority: context.accounts.bank_token_account.to_account_info(),
     };
     let cpi_context = CpiContext::new_with_signer(
@@ -116,7 +123,7 @@ pub fn process_borrow(context: Context<Borrow>, amount: u64) -> Result<()> {
         accounts,
         &signer_seeds,
     );
-    transfer_checked(cpi_context, amount, context.accounts.mint.decimals)?;
+    transfer_checked(cpi_context, amount, context.accounts.borrow_mint.decimals)?;
 
     if bank.total_borrowed == 0 {
         bank.total_borrowed = amount;
@@ -129,7 +136,7 @@ pub fn process_borrow(context: Context<Borrow>, amount: u64) -> Result<()> {
         .unwrap();
 
     let balance = user
-        .get_balance(&context.accounts.mint.to_account_info().key())
+        .get_balance_or_create(&context.accounts.borrow_bank.key())
         .unwrap();
     balance.borrowed = amount;
     balance.borrowed_shares = user_shares as u64;

@@ -47,17 +47,17 @@ pub struct Repay<'info> {
 }
 pub fn process_repay(context: Context<Repay>, amount: u64) -> Result<()> {
     let user = &mut context.accounts.user_account;
+    let bank_address = &context.accounts.bank.key();
     let bank = &mut context.accounts.bank;
+
     let last_updated_borrow = user.last_updated_borrow;
-    let balance = user
-        .get_balance(&context.accounts.mint.to_account_info().key())
-        .unwrap();
+    let balance = user.get_balance(bank_address).unwrap();
     let borrowed_value = balance.borrowed;
     let time_diff = last_updated_borrow - Clock::get()?.unix_timestamp;
     bank.total_borrowed +=
         (bank.total_borrowed as f64 * E.powf(bank.interest_rate as f64 * time_diff as f64)) as u64;
     let value_per_share = bank.total_borrowed as f64 / bank.total_borrowed_shares as f64;
-    let amount_to_repay = borrowed_value / value_per_share as u64;
+    let amount_to_repay = borrowed_value * value_per_share as u64;
     if amount > amount_to_repay {
         return Err(ErrorCode::OverRepayableAmount.into());
     }

@@ -52,10 +52,11 @@ pub fn process_withdraw(
     amount: u64,
 ) -> Result<()> {
     let user = &mut context.accounts.user_account;
+    let bank_address = &context.accounts.bank.key();
     let bank = &mut context.accounts.bank;
     let last_updated_deposit = user.last_updated_deposit;
     let balance = user
-        .get_balance(&context.accounts.mint.to_account_info().key())
+        .get_balance(bank_address)
         .unwrap();
     let deposited_value = balance.deposited;
     let time_diff = last_updated_deposit - Clock::get()?.unix_timestamp;

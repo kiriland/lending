@@ -2,7 +2,7 @@ use crate::error::ErrorCode;
 use anchor_lang::prelude::*;
 #[derive(AnchorSerialize, InitSpace, AnchorDeserialize, Clone, Copy, Default)]
 pub struct Balance {
-    pub token_mint_address: Pubkey,
+    pub bank_address: Pubkey,
     pub deposited: u64,
     pub deposited_shares: u64,
     pub borrowed: u64,
@@ -20,29 +20,29 @@ pub struct User {
     pub last_updated_borrow: i64,
 }
 impl User {
-    pub fn get_balance(&mut self, token_mint_address: &Pubkey) -> Option<&mut Balance> {
+    pub fn get_balance(&mut self, bank_address: &Pubkey) -> Option<&mut Balance> {
         self.balances
             .iter_mut()
-            .find(|balance| balance.token_mint_address.eq(token_mint_address))
+            .find(|balance| balance.bank_address.eq(bank_address))
     }
-    pub fn get_balance_or_create(&mut self, token_mint_address: &Pubkey) -> Result<&mut Balance> {
+    pub fn get_balance_or_create(&mut self, bank_address: &Pubkey) -> Result<&mut Balance> {
         let mut empty_balance: Option<&mut Balance> = None;
         for balance in &mut self.balances {
-            if balance.token_mint_address == *token_mint_address {
+            if balance.bank_address == *bank_address {
                 return Ok(balance);
             }
-            if empty_balance.is_none() && balance.token_mint_address == Pubkey::default() {
+            if empty_balance.is_none() && balance.bank_address == Pubkey::default() {
                 empty_balance = Some(balance);
             }
         }
         let balance = empty_balance.ok_or(ErrorCode::NoEmptyBalance)?;
-        balance.token_mint_address = *token_mint_address;
+        balance.bank_address = *bank_address;
         Ok(balance)
     }
     pub fn get_first_empty_balance(&mut self) -> Option<&mut Balance> {
         self.balances
             .iter_mut()
-            .find(|balance| balance.token_mint_address == Pubkey::default())
+            .find(|balance| balance.bank_address == Pubkey::default())
     }
 }
 impl Balance {

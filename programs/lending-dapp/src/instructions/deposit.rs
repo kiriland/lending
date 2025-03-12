@@ -68,11 +68,12 @@ pub fn process_deposit(
     let balance = user
         .get_balance_or_create(&context.accounts.mint.key())
         .unwrap();
-    balance.token_mint_address = context.accounts.mint.key();
-    balance.change_deposited_shares(user_shares)?;
-    balance.deposited += amount;
     bank.total_deposits += amount;
     bank.total_deposits_shares += user_shares;
+    balance.bank_address = context.accounts.bank.key();
+    balance.change_deposited_shares(user_shares)?;
+    balance.deposited += amount;
+    
 
     user.last_updated_deposit = Clock::get()?.unix_timestamp;
     Ok(())
