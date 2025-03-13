@@ -11,7 +11,7 @@ pub use constants::*;
 pub use instructions::*;
 pub use state::*;
 
-declare_id!("DL4w1JEu213nsJZbL8Ap91j4k28zP5LDjH6rHDyUGaXi");
+declare_id!("C1kXjvQ96YVqyvkBF6cF9W28YmieevsA37WNZ8uKfWXF");
 
 #[program]
 pub mod lending_dapp {

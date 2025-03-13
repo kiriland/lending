@@ -9,7 +9,6 @@ import toast, {Toaster} from 'react-hot-toast'
 import {AccountChecker} from '../account/account-ui'
 import {ClusterChecker, ClusterUiSelect, ExplorerLink} from '../cluster/cluster-ui'
 import {WalletButton} from '../solana/solana-provider'
-
 export function UiLayout({ children, links }: { children: ReactNode; links: { label: string; path: string }[] }) {
   const pathname = usePathname()
 
@@ -48,6 +47,7 @@ export function UiLayout({ children, links }: { children: ReactNode; links: { la
         >
           {children}
         </Suspense>
+        
         <Toaster position="bottom-right" />
       </div>
       <footer className="footer footer-center p-4 bg-base-300 text-base-content">
