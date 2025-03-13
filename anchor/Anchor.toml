@@ -11,7 +11,8 @@ lending_dapp = "C1kXjvQ96YVqyvkBF6cF9W28YmieevsA37WNZ8uKfWXF"
 url = "https://api.apr.dev"
 
 [provider]
-cluster = "https://api.devnet.solana.com"
+cluster_dev = "https://api.devnet.solana.com"
+cluster = "http://127.0.0.1:8899"
 wallet = "~/.config/solana/id.json"
 
 [scripts]

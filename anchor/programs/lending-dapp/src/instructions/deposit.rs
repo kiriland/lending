@@ -1,6 +1,6 @@
 use anchor_lang::prelude::*;
 use anchor_spl::{associated_token::AssociatedToken, token_interface::{Mint, TokenAccount, TokenInterface}};
-
+use crate::error::ErrorCode;
 use crate::{Bank, User};
 
 use super::transfer_tokens;
@@ -55,26 +55,46 @@ pub fn process_deposit(
     )?;
 
     let bank = &mut context.accounts.bank;
+    let user = &mut context.accounts.user_account;
 
     if bank.total_deposits == 0 {
         bank.total_deposits = amount;
         bank.total_deposits_shares = amount;
-    } 
-    let deposit_ratio = amount.checked_div(bank.total_deposits).unwrap();
-    let user_shares = bank.total_deposits_shares.checked_mul(deposit_ratio).unwrap();
-
-    let user = &mut context.accounts.user_account;
-
-    let balance = user
-        .get_balance_or_create(&context.accounts.mint.key())
+        let balance = user
+        .get_balance_or_create(&bank.key())
         .unwrap();
-    bank.total_deposits += amount;
-    bank.total_deposits_shares += user_shares;
-    balance.bank_address = context.accounts.bank.key();
-    balance.change_deposited_shares(user_shares)?;
-    balance.deposited += amount;
-    
+        balance.bank_address = bank.key();
+        balance.change_deposited_shares(amount)?;
+        balance.deposited += amount;
 
-    user.last_updated_deposit = Clock::get()?.unix_timestamp;
-    Ok(())
+        user.last_updated_deposit = Clock::get()?.unix_timestamp;
+        return Ok(());
+    } 
+    let deposit_ratio = amount
+    .checked_mul(bank.total_deposits_shares)
+    .ok_or(ErrorCode::Overflow)?
+    .checked_div(bank.total_deposits)
+    .ok_or(ErrorCode::InsufficientFunds)?;
+let user_shares = deposit_ratio;
+
+
+bank.total_deposits = bank
+    .total_deposits
+    .checked_add(amount)
+    .ok_or(ErrorCode::Overflow)?;
+bank.total_deposits_shares = bank
+    .total_deposits_shares
+    .checked_add(user_shares)
+    .ok_or(ErrorCode::Overflow)?;
+
+let balance = user
+    .get_balance_or_create(&bank.key())
+    .unwrap();
+balance.bank_address = bank.key();
+balance.change_deposited_shares(user_shares)?;
+balance.deposited = balance.deposited.checked_add(amount).ok_or(ErrorCode::Overflow)?;
+
+user.last_updated_deposit = Clock::get()?.unix_timestamp;
+Ok(())
+
 }

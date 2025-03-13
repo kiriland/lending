@@ -35,6 +35,9 @@ pub mod lending_dapp {
     pub fn init_user(context: Context<InitUser>) -> Result<()> {
         instructions::admin::process_init_user(context)
     }
+    pub fn close_bank(context: Context<CloseBank>) -> Result<()> {
+        instructions::admin::process_close_bank(context)
+    }
     pub fn deposit(context: Context<Deposit>, amount: u64) -> Result<()> {
         instructions::deposit::process_deposit(context, amount)
     }

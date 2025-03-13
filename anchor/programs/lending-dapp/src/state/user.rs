@@ -23,7 +23,7 @@ impl User {
     pub fn get_balance(&mut self, bank_address: &Pubkey) -> Option<&mut Balance> {
         self.balances
             .iter_mut()
-            .find(|balance| balance.bank_address.eq(bank_address))
+            .find(|balance| balance.bank_address == *bank_address)
     }
     pub fn get_balance_or_create(&mut self, bank_address: &Pubkey) -> Result<&mut Balance> {
         let mut empty_balance: Option<&mut Balance> = None;
@@ -52,5 +52,17 @@ impl Balance {
             .checked_add(delta)
             .ok_or(ErrorCode::Overflow)?;
         Ok(())
+    }
+    pub fn empty() -> Self {
+        Self {
+            bank_address: Pubkey::default(),
+            deposited: 0,
+            deposited_shares: 0,
+            borrowed: 0,
+            borrowed_shares: 0,
+        }
+    }
+    pub fn clear(&mut self) {
+        *self = Self::empty();
     }
 }

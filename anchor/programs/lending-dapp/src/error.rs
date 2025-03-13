@@ -16,4 +16,6 @@ pub enum ErrorCode {
     NoEmptyBalance,
     #[msg("Invalid Token Mint Address")]
     InvalidCollateralMint,
+    #[msg("Unauthorized: Only the bank authority can close the bank.")]
+    Unauthorized,
 }
