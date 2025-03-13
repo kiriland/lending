@@ -5,7 +5,7 @@ import { WalletButton } from '../solana/solana-provider'
 import { AppHero, ellipsify } from '../ui/ui-layout'
 import { ExplorerLink } from '../cluster/cluster-ui'
 import { useLendingProgram } from './lending-data-access'
-import { UserInit ,UserNum} from './lending-ui'
+import { DepositTokenButton, InitBankButton, MintBanks, UserInit ,UserNum} from './lending-ui'
 
 export default function LendingFeature() {
   const { publicKey } = useWallet()
@@ -24,6 +24,9 @@ export default function LendingFeature() {
         </p>
         <UserInit />
         <UserNum />
+        <MintBanks />
+        <InitBankButton />
+        <DepositTokenButton />
       </AppHero>
       
     </div>

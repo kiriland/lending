@@ -1,8 +1,9 @@
 'use client'
 
-import { Keypair, Connection, LAMPORTS_PER_SOL } from '@solana/web3.js'
+import { Keypair, Connection, LAMPORTS_PER_SOL, PublicKey } from '@solana/web3.js'
 import { useMemo } from 'react'
 import { ellipsify } from '../ui/ui-layout'
+import { BN, Program } from '@coral-xyz/anchor'
 import { ExplorerLink } from '../cluster/cluster-ui'
 import { useLendingProgram, useLendingProgramAccount } from './lending-data-access'
 import { useWallet } from '@solana/wallet-adapter-react'
@@ -59,7 +60,90 @@ export function UserNum () {
       ))}
     </div>)
 }
+export function MintBanks () {
+  const { createMints } = useLendingProgram()
+  return (<button
+    className="btn btn-xs lg:btn-md btn-primary"
+    onClick={() => createMints.mutateAsync()}
+    disabled={createMints.isPending}
+  >
+    Create Tokens {createMints.isPending && '...'}
+  </button>)
+}
+export function InitBankButton() {
+  const { initBank } = useLendingProgram();
+  const { publicKey } = useWallet();
 
+  const handleInitBank = async () => {
+
+    const Signer = publicKey;
+
+
+    const depositRate = new BN(100);
+    const borrowRate = new BN(50);
+    const priceFeed = "0xeaa020c61cc479712813461ce153894a96a6c00b21ed0cfc2798d1f9a9e9c94a"; 
+    const TokenName = "USDC";
+
+    // Replace with your actual mint public key (for example, one returned from your createMints mutation)
+    const dummyMint = new PublicKey("GRb4xNPZqkUSCGwawz2NTjgPo5ugTWmWXgJXwNH3AKTu");
+
+    try {
+      await initBank.mutateAsync({
+        signer: Signer!,
+        mint: dummyMint,
+        depositRate,
+        borrowRate,
+        priceFeed,
+        name: TokenName,
+      });
+    } catch (error) {
+      console.error(error);
+    }
+  };
+
+  return (
+    <button
+      className="btn btn-xs lg:btn-md btn-primary"
+      onClick={handleInitBank}
+      disabled={initBank.isPending}
+    >
+      Init Bank {initBank.isPending && '...'}
+    </button>
+  );
+}
+
+export function DepositTokenButton() {
+  const { depositToken } = useLendingProgram();
+  const { publicKey } = useWallet();
+
+  // Replace this dummy mint with your actual token mint address.
+  const dummyMint = new PublicKey("GRb4xNPZqkUSCGwawz2NTjgPo5ugTWmWXgJXwNH3AKTu");
+  // Define the deposit amount (in smallest units). Adjust as needed.
+  const depositAmount = new BN(1000000);
+
+  const handleDeposit = async () => {
+    
+
+    try {
+      await depositToken.mutateAsync({
+        mint: dummyMint,
+        amount: depositAmount,
+      });
+    } catch (error) {
+      console.error(error);
+    }
+  };
+
+  return (
+    <button
+      className="btn btn-xs lg:btn-md btn-primary"
+      onClick={handleDeposit}
+      disabled={depositToken.isPending}
+    >
+      Deposit Tokens {depositToken.isPending && '...'}
+    </button>
+  );
+}
 
 // export function CounterList() {
 //   const { accounts, getProgramAccount } = useLendingProgram()

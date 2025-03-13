@@ -1,10 +1,16 @@
-'use client'
 
 import { getLendingProgram, getLendingProgramId } from '@project/anchor'
-import {TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID} from '@solana/spl-token'
+import {
+    MINT_SIZE,
+    TOKEN_PROGRAM_ID,
+    getAssociatedTokenAddress,
+    createAssociatedTokenAccountInstruction,
+    createInitializeMintInstruction,
+    createMintToInstruction,
+  } from '@solana/spl-token';
 import { useConnection, useWallet } from '@solana/wallet-adapter-react'
 import { BN, Program } from '@coral-xyz/anchor'
-import { Cluster, Keypair, PublicKey, SystemProgram, LAMPORTS_PER_SOL  } from '@solana/web3.js'
+import { Cluster, Keypair, PublicKey, SystemProgram,Transaction,  LAMPORTS_PER_SOL  } from '@solana/web3.js'
 import { useMutation, useQuery,useQueryClient } from '@tanstack/react-query'
 import { useMemo } from 'react'
 import toast from 'react-hot-toast'
@@ -13,7 +19,7 @@ import { useAnchorProvider } from '../solana/solana-provider'
 import { useTransactionToast } from '../ui/ui-layout'
 
 interface InitBankArgs {
-  signer: Keypair
+  signer: PublicKey
   mint: PublicKey
   depositRate: BN
   borrowRate: BN
@@ -21,7 +27,10 @@ interface InitBankArgs {
   name: string
 }
 
-
+interface DepositArgs {
+    mint: PublicKey
+    amount: BN
+  }
 export async function findUserAccount(
   userPubkey: PublicKey,
   programId: PublicKey
@@ -32,35 +41,17 @@ export async function findUserAccount(
   )
   return userAccount
 }
-export function useRequestAirdrop({ address }: { address: PublicKey }) {
-    const { connection } = useConnection()
-    const transactionToast = useTransactionToast()
-    const client = useQueryClient()
-  
-    return useMutation({
-      mutationKey: ['airdrop', { endpoint: connection.rpcEndpoint, address }],
-      mutationFn: async (amount: number = 1) => {
-        const [latestBlockhash, signature] = await Promise.all([
-          connection.getLatestBlockhash(),
-          connection.requestAirdrop(address, amount * LAMPORTS_PER_SOL),
-        ])
-  
-        await connection.confirmTransaction({ signature, ...latestBlockhash }, 'confirmed')
-        return signature
-      },
-      onSuccess: (signature) => {
-        transactionToast(signature)
-        return Promise.all([
-          client.invalidateQueries({
-            queryKey: ['get-balance', { endpoint: connection.rpcEndpoint, address }],
-          }),
-          client.invalidateQueries({
-            queryKey: ['get-signatures', { endpoint: connection.rpcEndpoint, address }],
-          }),
-        ])
-      },
-    })
+export async function findBankAccount(
+    mint: PublicKey,
+    programId: PublicKey
+  ): Promise<PublicKey> {
+    const [bankAccount] = await PublicKey.findProgramAddress(
+      [mint.toBuffer()],
+      programId
+    )
+    return bankAccount
   }
+
 export function useLendingProgram() {
   const { connection } = useConnection()
   const { cluster } = useCluster()
@@ -68,9 +59,106 @@ export function useLendingProgram() {
   const provider = useAnchorProvider()
   const programId = useMemo(() => getLendingProgramId(cluster.network as Cluster), [cluster])
   const program = useMemo(() => getLendingProgram(provider, programId), [provider, programId])
-  const {wallet,publicKey } = useWallet()
+  const {wallet,publicKey , sendTransaction} = useWallet()
     const client = useQueryClient()
+    const createMints = useMutation({
+        mutationKey: ['lending', 'create-mints', { cluster }],
+        mutationFn: async () => {
+        const payer = publicKey!;
+        const decimals = 6;
+        const lamportsForMint = await connection.getMinimumBalanceForRentExemption(MINT_SIZE);
+        const mintAKeypair = Keypair.generate();
+        const mintBKeypair = Keypair.generate();
+        let tx = new Transaction();
+        const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('confirmed');
+        tx.recentBlockhash = blockhash;
+        tx.feePayer = publicKey!
+    tx.add(
+      SystemProgram.createAccount({
+        fromPubkey: payer,
+        newAccountPubkey: mintAKeypair.publicKey,
+        lamports: lamportsForMint,
+        space: MINT_SIZE,
+        programId: TOKEN_PROGRAM_ID,
+      }),
+      createInitializeMintInstruction(
+        mintAKeypair.publicKey,
+        decimals,
+        payer,
+        payer,
+        TOKEN_PROGRAM_ID
+      )
+    );
+    tx.add(
+      SystemProgram.createAccount({
+        fromPubkey: payer,
+        newAccountPubkey: mintBKeypair.publicKey,
+        lamports: lamportsForMint,
+        space: MINT_SIZE,
+        programId: TOKEN_PROGRAM_ID,
+      }),
+      createInitializeMintInstruction(
+        mintBKeypair.publicKey,
+        decimals,
+        payer,
+        payer,
+        TOKEN_PROGRAM_ID
+      )
+    );
+    tx.partialSign(mintAKeypair, mintBKeypair);
+    const createMintTxSignature = await sendTransaction(tx, connection);
+    await connection.confirmTransaction( { signature: createMintTxSignature, blockhash, lastValidBlockHeight }, 'confirmed');
 
+
+    const tokenAccountA = await getAssociatedTokenAddress(mintAKeypair.publicKey, publicKey!);
+    const tokenAccountB = await getAssociatedTokenAddress(mintBKeypair.publicKey, publicKey!);
+
+    const createTokenA = createAssociatedTokenAccountInstruction(
+        publicKey!,
+        tokenAccountA,
+        publicKey!,    
+        mintAKeypair.publicKey 
+      );
+      const mintTokenA = createMintToInstruction(
+        mintAKeypair.publicKey,
+        tokenAccountA, 
+        publicKey!,
+        300000000000,
+        [],
+        TOKEN_PROGRAM_ID
+      )
+      const createTokenB = createAssociatedTokenAccountInstruction(
+        publicKey!,
+        tokenAccountB,
+        publicKey!,    
+        mintBKeypair.publicKey 
+      );
+      const mintTokenB = createMintToInstruction(
+        mintBKeypair.publicKey,
+        tokenAccountB,
+        publicKey!,
+        200000000000,
+        [],
+        TOKEN_PROGRAM_ID
+      )
+      let txToken = new Transaction().add(createTokenA).add(mintTokenA).add(createTokenB).add(mintTokenB);
+      txToken.recentBlockhash = blockhash;
+      txToken.feePayer = publicKey!
+      const createTxTokenSignature = await sendTransaction(txToken, connection);
+      await connection.confirmTransaction(
+        { signature:createTxTokenSignature, blockhash, lastValidBlockHeight },
+        'confirmed'
+      );
+
+       return createMintTxSignature   
+        },
+        onSuccess: (signature: string) => {
+          transactionToast(signature)
+          userAccounts.refetch()
+        },
+        onError: (error: any) =>
+          toast.error(`Failed to initialize Banks account: ${error.message}`),
+      })
   const bankAccounts = useQuery({
     queryKey: ['lending', 'banks', { cluster }],
     queryFn: async () => {
@@ -120,11 +208,10 @@ export function useLendingProgram() {
       return program.methods
         .initBank(depositRate, borrowRate, priceFeed, name)
         .accounts({
-          signer: signer.publicKey,
+          signer: signer,
           mint,
           tokenProgram: TOKEN_PROGRAM_ID,
         })
-        .signers([signer])
         .rpc({ commitment: 'confirmed' })
     },
     onSuccess: (signature: string) => {
@@ -132,6 +219,24 @@ export function useLendingProgram() {
       bankAccounts.refetch()
     },
     onError: () => toast.error('Failed to initialize bank'),
+  })
+  const depositToken = useMutation({
+    mutationKey: ['lending', 'deposit', { cluster }],    mutationFn: async ({ mint, amount }: DepositArgs) => {
+        return program.methods
+          .deposit(amount)
+          .accounts({
+            signer: publicKey!,
+                    mint: mint,
+                    tokenProgram: TOKEN_PROGRAM_ID,
+          })
+          
+          .rpc()
+      },
+      onSuccess: (signature: string) => {
+        transactionToast(signature)
+        bankAccounts.refetch()
+      },
+      onError: () => toast.error('Failed to deposit'),
   })
   
 
@@ -142,6 +247,8 @@ export function useLendingProgram() {
     initUser,
     initBank,
     bankAccounts,
+    depositToken,
+    createMints,
     userAccounts,
   }
 }
