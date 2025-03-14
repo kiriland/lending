@@ -1,17 +1,18 @@
 'use client'
 
 import { Keypair, Connection, LAMPORTS_PER_SOL, PublicKey } from '@solana/web3.js'
-import { useMemo } from 'react'
-import { ellipsify } from '../ui/ui-layout'
+import { useMemo, useState } from 'react'
+import { AppModal,ellipsify } from '../ui/ui-layout'
 import { BN, Program } from '@coral-xyz/anchor'
 import { ExplorerLink } from '../cluster/cluster-ui'
 import { useLendingProgram, useLendingProgramAccount } from './lending-data-access'
 import { useWallet } from '@solana/wallet-adapter-react'
 import exp from 'constants'
 import { getLendingProgram, getLendingProgramId } from '@project/anchor'
+import { TOKEN_PROGRAM_ID } from '@solana/spl-token'
 
 
-
+type Mode = 'deposit' | 'withdraw';
 export function UserInit() {
   const { initUser } = useLendingProgram()
     const { publicKey } = useWallet()
@@ -60,6 +61,65 @@ export function UserNum () {
       ))}
     </div>)
 }
+export function BanksNum () {
+  const {bankAccounts} = useLendingProgram()
+  return (
+    <div className="space-y-4 p-4">
+      {bankAccounts.data?.map((bank, index) => (
+        <div key={index} className="border rounded p-4 shadow-sm">
+          <CloseBankButton mint={bank.account.tokenMintAddress.toString()}/>
+          <p>
+            <strong>Bank Account:</strong> {bank.publicKey.toString()}
+          </p>
+          <p>
+            <strong>Authority:</strong> {bank.account.authority.toString()}
+          </p>
+          <p>
+            <strong>Token Mint Address:</strong>{' '}
+            {bank.account.tokenMintAddress.toString()}
+          </p>
+          <p>
+            <strong>Total Deposits:</strong> {bank.account.totalDeposits.toString()}
+          </p>
+          <p>
+            <strong>Total Deposit Shares:</strong>{' '}
+            {bank.account.totalDepositsShares.toString()}
+          </p>
+          <p>
+            <strong>Total Borrowed:</strong> {bank.account.totalBorrowed.toString()}
+          </p>
+          <p>
+            <strong>Total Borrowed Shares:</strong>{' '}
+            {bank.account.totalBorrowedShares.toString()}
+          </p>
+          <p>
+            <strong>Liquidation Threshold:</strong>{' '}
+            {bank.account.liquidationThreshold.toString()}
+          </p>
+          <p>
+            <strong>Liquidation Bonus:</strong>{' '}
+            {bank.account.liquidationBonus.toString()}
+          </p>
+          <p>
+            <strong>Close Factor:</strong> {bank.account.closeFactor.toString()}
+          </p>
+          <p>
+            <strong>Max LTV:</strong> {bank.account.maxLtv.toString()}
+          </p>
+          <p>
+            <strong>Last Updated:</strong> {bank.account.lastUpdated.toString()}
+          </p>
+          <p>
+            <strong>Interest Rate:</strong> {bank.account.interestRate.toString()}
+          </p>
+          <p>
+            <strong>Config:</strong> {JSON.stringify(bank.account.config)}
+          </p>
+        </div>
+      ))}
+    </div>
+  );
+}
 export function MintBanks () {
   const { createMints } = useLendingProgram()
   return (<button
@@ -70,7 +130,7 @@ export function MintBanks () {
     Create Tokens {createMints.isPending && '...'}
   </button>)
 }
-export function InitBankButton() {
+export function InitBankButton({priceFeed,tokenName,mint}:{priceFeed: string, tokenName: string, mint: string}) {
   const { initBank } = useLendingProgram();
   const { publicKey } = useWallet();
 
@@ -81,20 +141,15 @@ export function InitBankButton() {
 
     const depositRate = new BN(100);
     const borrowRate = new BN(50);
-    const priceFeed = "0xeaa020c61cc479712813461ce153894a96a6c00b21ed0cfc2798d1f9a9e9c94a"; 
-    const TokenName = "USDC";
-
-    // Replace with your actual mint public key (for example, one returned from your createMints mutation)
-    const dummyMint = new PublicKey("GRb4xNPZqkUSCGwawz2NTjgPo5ugTWmWXgJXwNH3AKTu");
 
     try {
       await initBank.mutateAsync({
         signer: Signer!,
-        mint: dummyMint,
+        mint: new PublicKey(mint),
         depositRate,
         borrowRate,
         priceFeed,
-        name: TokenName,
+        name: tokenName,
       });
     } catch (error) {
       console.error(error);
@@ -107,44 +162,180 @@ export function InitBankButton() {
       onClick={handleInitBank}
       disabled={initBank.isPending}
     >
-      Init Bank {initBank.isPending && '...'}
+      Init Bank {tokenName}{initBank.isPending && '...'}
     </button>
   );
 }
 
 export function DepositTokenButton() {
-  const { depositToken } = useLendingProgram();
+  const { depositToken, withdrawToken } = useLendingProgram();
   const { publicKey } = useWallet();
+  const [showSendModal, setShowSendModal] = useState(false)
+  return (
+    <div><ModalSend show={showSendModal} hide={() => setShowSendModal(false)} />
+    <button
+      className="btn btn-xs lg:btn-md btn-primary"
+      onClick={() => setShowSendModal(true)}
+      disabled={depositToken.isPending}
+    >
+      Deposit or Withdraw Tokens {(depositToken.isPending && '...') || (withdrawToken.isPending && '...') }
+    </button>
+    </div>
+  );
+}
 
-  // Replace this dummy mint with your actual token mint address.
-  const dummyMint = new PublicKey("GRb4xNPZqkUSCGwawz2NTjgPo5ugTWmWXgJXwNH3AKTu");
-  // Define the deposit amount (in smallest units). Adjust as needed.
-  const depositAmount = new BN(1000000);
+function ModalSend({ hide, show }: { hide: () => void; show: boolean }) {
+  const wallet = useWallet()
+  const { depositToken, withdrawToken } = useLendingProgram();
+  const [mint, setMint] = useState('')
+  const [amount, setAmount] = useState('1')
+  const [mode, setMode] = useState<Mode>('deposit');
+  if ( !wallet.sendTransaction) {
+    return <div>Wallet not connected</div>
+  }
+  const handleSubmit = async () => {
+    try {
+      if (mode === 'deposit') {
+        await depositToken.mutateAsync({
+          mint: new PublicKey(mint),
+          amount: new BN(amount),
+        });
+      } else {
+        await withdrawToken.mutateAsync({
+          mint: new PublicKey(mint),
+          amount: new BN(amount),
+        });
+      }
+      hide();
+    } catch (error) {
+      console.error(error);
+    }
+  };
+  return (
+    <AppModal
+      hide={hide}
+      show={show}
+      title={mode === 'deposit' ? 'Deposit to Bank' : 'Withdraw from Bank'}
+      submitDisabled={!mint || !amount || (mode === 'deposit' ? depositToken.isPending : withdrawToken.isPending)}
+      submitLabel={mode === 'deposit' ? 'Deposit' : 'Withdraw'}
+      submit={handleSubmit}
+    > <div className="flex items-center justify-center my-4">
+    <div className="relative inline-flex items-center rounded overflow-hidden ">
+      <button
+        onClick={() => setMode('deposit')}
+        className={`px-4 py-2 btn  transition-colors duration-200 ${
+          mode === 'deposit' ? 'btn-primary' : 'btn-outline'
+        }`}
+      >
+        Deposit
+      </button>
+      <button
+        onClick={() => setMode('withdraw')}
+        className={`px-4 py-2btn btn transition-colors duration-200 ${
+          mode === 'withdraw' ? 'btn-primary' : 'btn-outline'
+        }`}
+      >
+        Withdraw
+      </button>
+    </div>
+  </div>
+      <input
+        disabled={depositToken.isPending}
+        type="text"
+        placeholder="Bank Address Mint"
+        className="input input-bordered w-full"
+        value={mint}
+        onChange={(e) => setMint(e.target.value)}
+      />
+      <input
+        disabled={depositToken.isPending}
+        type="number"
+        step="any"
+        min="1"
+        placeholder="Amount"
+        className="input input-bordered w-full"
+        value={amount}
+        onChange={(e) => setAmount(e.target.value)}
+      />
+    </AppModal>
+  )
+}
 
-  const handleDeposit = async () => {
-    
+
+export function CloseBankButton({ mint }: { mint: String }) {
+  const { closeBank } = useLendingProgram();
+  const { publicKey } = useWallet();
+  const [showCloseBankModal, setShowCloseBankModal] = useState(false)
+ if (mint) {
+  const handleCloseBank = async () => {
+
 
     try {
-      await depositToken.mutateAsync({
-        mint: dummyMint,
-        amount: depositAmount,
+      await closeBank.mutateAsync({
+        
+        mint: new PublicKey(mint),
       });
     } catch (error) {
       console.error(error);
     }
   };
-
+  return (<button
+    className="btn btn-xs lg:btn-md btn-primary"
+    onClick={handleCloseBank}
+    disabled={closeBank.isPending}
+  >
+    Close Bank {closeBank.isPending && '...'}
+  </button>)
+ }else{
   return (
+    <div><ModalCloseBank show={showCloseBankModal} hide={() => setShowCloseBankModal(false)} />
     <button
       className="btn btn-xs lg:btn-md btn-primary"
-      onClick={handleDeposit}
-      disabled={depositToken.isPending}
+      onClick={() => setShowCloseBankModal(true)}
+      disabled={closeBank.isPending}
     >
-      Deposit Tokens {depositToken.isPending && '...'}
+      Close Bank {closeBank.isPending && '...'}
     </button>
+    </div>
   );
+ }
 }
+function ModalCloseBank({ hide, show }: { hide: () => void; show: boolean }) {
+  const wallet = useWallet()
+  const { closeBank } = useLendingProgram();
+  const [mint, setMint] = useState('')
 
+  if ( !wallet.sendTransaction) {
+    return <div>Wallet not connected</div>
+  }
+
+  return (
+    <AppModal
+      hide={hide}
+      show={show}
+      title="Close Bank"
+      submitDisabled={!mint  || closeBank.isPending}
+      submitLabel="Close Bank"
+      submit={() => {
+        closeBank
+          .mutateAsync({
+            mint: new PublicKey(mint),
+          })
+          .then(() => hide())
+      }}
+    >
+      <input
+        disabled={closeBank.isPending}
+        type="text"
+        placeholder="Bank Address Mint"
+        className="input input-bordered w-full"
+        value={mint}
+        onChange={(e) => setMint(e.target.value)}
+      />
+      
+    </AppModal>
+  )
+}
 // export function CounterList() {
 //   const { accounts, getProgramAccount } = useLendingProgram()
 
