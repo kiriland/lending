@@ -7,6 +7,7 @@ import {
     createAssociatedTokenAccountInstruction,
     createInitializeMintInstruction,
     createMintToInstruction,
+    mintTo,
   } from '@solana/spl-token';
 import { useConnection, useWallet } from '@solana/wallet-adapter-react'
 import { BN, Program } from '@coral-xyz/anchor'
@@ -30,6 +31,14 @@ interface InitBankArgs {
 interface DepositArgs {
     mint: PublicKey
     amount: BN
+  }
+  interface WithdrawArgs {
+    mint: PublicKey
+    amount: BN
+  }
+  interface CloseBankArgs {
+    mint: PublicKey
+    
   }
 export async function findUserAccount(
   userPubkey: PublicKey,
@@ -195,6 +204,27 @@ export function useLendingProgram() {
     onError: (error: any) =>
       toast.error(`Failed to initialize user account: ${error.message}`),
   })
+  const closeBank = useMutation({
+    mutationKey: ['lending', 'close-bank', { cluster }],
+    mutationFn: async ({ mint }: CloseBankArgs) => {
+      return program.methods
+        .closeBank()
+        .accounts({
+          signer: publicKey!,
+          mint: mint,
+          tokenProgram: TOKEN_PROGRAM_ID
+        })
+        
+        .rpc()
+    },
+    onSuccess: (signature: string) => {
+      transactionToast(signature)
+      bankAccounts.refetch(),
+      userAccounts.refetch()
+    },
+    onError: (error: any) =>
+      toast.error(`Failed to initialize user account: ${error.message}`),
+  })
   const initBank = useMutation({
     mutationKey: ['lending', 'init-bank', { cluster }],
     mutationFn: async ({
@@ -235,8 +265,27 @@ export function useLendingProgram() {
       onSuccess: (signature: string) => {
         transactionToast(signature)
         bankAccounts.refetch()
+        userAccounts.refetch()
       },
       onError: () => toast.error('Failed to deposit'),
+  })
+  const withdrawToken = useMutation({
+    mutationKey: ['lending', 'withdraw', { cluster }],    mutationFn: async ({ mint, amount }: WithdrawArgs) => {
+        return program.methods
+          .withdraw(amount)
+          .accounts({
+            signer: publicKey!,
+                    mint: mint,
+                    tokenProgram: TOKEN_PROGRAM_ID,
+          })
+          .rpc()
+      },
+      onSuccess: (signature: string) => {
+        transactionToast(signature)
+        bankAccounts.refetch()
+        userAccounts.refetch()
+      },
+      onError: () => toast.error('Failed to withdraw'),
   })
   
 
@@ -250,6 +299,8 @@ export function useLendingProgram() {
     depositToken,
     createMints,
     userAccounts,
+    closeBank,
+    withdrawToken,
   }
 }
 

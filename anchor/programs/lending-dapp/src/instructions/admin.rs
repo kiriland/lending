@@ -114,33 +114,36 @@ pub fn process_close_bank(context: Context<CloseBank>) -> Result<()> {
         return Err(ErrorCode::Unauthorized.into());
     }
     let user = &mut context.accounts.user_account;
-    let balance = user.get_balance(&context.accounts.bank.key()).unwrap();
-    let amount_to_be_returned = balance.deposited;
-    balance.clear();
+    let balance = user.get_balance(&context.accounts.bank.key());
+    if !balance.is_none() {
+        let balance = balance.unwrap();
+        let amount_to_be_returned = balance.deposited;
+        balance.clear();
+        let seeds = &[
+            b"treasury",
+            context.accounts.mint.to_account_info().key.as_ref(),
+            &[context.bumps.bank_token_account],
+        ];
+        let signer_seeds = [&seeds[..]];
 
-    let seeds = &[
-        b"treasury",
-        context.accounts.mint.to_account_info().key.as_ref(),
-        &[context.bumps.bank_token_account],
-    ];
-    let signer_seeds = [&seeds[..]];
+        let accounts = TransferChecked {
+            from: context.accounts.bank_token_account.to_account_info(),
+            to: context.accounts.user_token_account.to_account_info(),
+            mint: context.accounts.mint.to_account_info(),
+            authority: context.accounts.bank_token_account.to_account_info(),
+        };
+        let cpi_context = CpiContext::new_with_signer(
+            context.accounts.token_program.to_account_info(),
+            accounts,
+            &signer_seeds,
+        );
+        transfer_checked(
+            cpi_context,
+            amount_to_be_returned,
+            context.accounts.mint.decimals,
+        )?;
+    }
 
-    let accounts = TransferChecked {
-        from: context.accounts.bank_token_account.to_account_info(),
-        to: context.accounts.user_token_account.to_account_info(),
-        mint: context.accounts.mint.to_account_info(),
-        authority: context.accounts.bank_token_account.to_account_info(),
-    };
-    let cpi_context = CpiContext::new_with_signer(
-        context.accounts.token_program.to_account_info(),
-        accounts,
-        &signer_seeds,
-    );
-    transfer_checked(
-        cpi_context,
-        amount_to_be_returned,
-        context.accounts.mint.decimals,
-    )?;
     // let cpi_accounts = anchor_spl::token_interface::CloseAccount {
     //     account: context.accounts.bank_token_account.to_account_info(),
     //     destination: context.accounts.user_token_account.to_account_info(),
