@@ -14,7 +14,7 @@ pub struct Bank {
     pub close_factor: u64,
     pub max_ltv: u64,
     pub last_updated: i64,
-    pub interest_rate: u64,
+    pub interest_rate: f64,
     pub config: BankConfig,
 }
 

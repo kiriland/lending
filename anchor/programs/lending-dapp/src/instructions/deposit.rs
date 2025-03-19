@@ -71,11 +71,10 @@ pub fn process_deposit(
         return Ok(());
     } 
     let deposit_ratio = amount
-    .checked_mul(bank.total_deposits_shares)
-    .ok_or(ErrorCode::Overflow)?
+    
     .checked_div(bank.total_deposits)
     .ok_or(ErrorCode::InsufficientFunds)?;
-let user_shares = deposit_ratio;
+let user_shares = bank.total_deposits_shares.checked_mul(deposit_ratio).unwrap();
 
 
 bank.total_deposits = bank
