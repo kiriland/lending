@@ -51,9 +51,9 @@ pub fn process_repay(context: Context<Repay>, amount: u64) -> Result<()> {
     let bank_address = &context.accounts.bank.key();
     let bank = &mut context.accounts.bank;
 
-    let last_updated_borrow = user.last_updated_borrow;
     let balance = user.get_balance(bank_address).unwrap();
     let borrowed_value = balance.borrowed;
+    let last_updated_borrow = balance.last_updated_borrow;
 
     bank.total_borrowed =
         calculate_accrued_interest(bank.total_borrowed, bank.interest_rate, last_updated_borrow)?;

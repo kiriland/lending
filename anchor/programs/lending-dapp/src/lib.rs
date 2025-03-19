@@ -19,8 +19,8 @@ pub mod lending_dapp {
 
     pub fn init_bank(
         context: Context<InitBank>,
-        liquidation_threshold: u64,
-        max_ltv: u64,
+        liquidation_threshold: f64,
+        max_ltv: f64,
         oracle_key: String,
         ticker_symbol: String,
     ) -> Result<()> {

@@ -80,7 +80,7 @@ pub fn process_borrow(context: Context<Borrow>, amount: u64) -> Result<()> {
             let new_value = calculate_accrued_interest(
                 usdc_balance.deposited,
                 borrow_bank.interest_rate,
-                user.last_updated_deposit,
+                usdc_balance.last_updated_deposit,
             )?;
             // 1 USDC
             borrow_price = 100022121.0;
@@ -100,7 +100,7 @@ pub fn process_borrow(context: Context<Borrow>, amount: u64) -> Result<()> {
             let new_value = calculate_accrued_interest(
                 sol_balance.deposited,
                 borrow_bank.interest_rate,
-                user.last_updated_deposit,
+                sol_balance.last_updated_deposit,
             )?;
             // total_collateral = sol_price.price as u64 * new_value;
             let borrow_feed_id = borrow_bank.config.oracle_feed_id;
@@ -141,7 +141,7 @@ pub fn process_borrow(context: Context<Borrow>, amount: u64) -> Result<()> {
         balance.borrowed = amount;
         balance.borrowed_shares = amount;
 
-        user.last_updated_borrow = Clock::get()?.unix_timestamp;
+        balance.last_updated_borrow = Clock::get()?.unix_timestamp;
         return Ok(());
     }
     let borrow_ratio = amount.checked_div(borrow_bank.total_borrowed).unwrap();
@@ -156,6 +156,6 @@ pub fn process_borrow(context: Context<Borrow>, amount: u64) -> Result<()> {
     borrow_bank.total_borrowed += amount;
     borrow_bank.total_borrowed_shares += user_shares;
 
-    user.last_updated_borrow = Clock::get()?.unix_timestamp;
+    balance.last_updated_borrow = Clock::get()?.unix_timestamp;
     Ok(())
 }

@@ -89,8 +89,8 @@ pub struct CloseBank<'info> {
 
 pub fn process_init_bank(
     context: Context<InitBank>,
-    liquidation_threshold: u64,
-    max_ltv: u64,
+    liquidation_threshold: f64,
+    max_ltv: f64,
     oracle_feed_id_hex: &str,
     ticker_symbol: String,
 ) -> Result<()> {

@@ -92,5 +92,5 @@ pnpm build
 Test Validator with necessary programs
 
 ```
-solana-test-validator --clone Dpw1EAVrSB1ibxiDQyTAW6Zip3J4Btk2x4SgApQCeFbX --url "https://api.devnet.solana.com" --reset --clone 7UVimffxr9ow1uXYxsr4LHAcV58mLzhmwaeKvJ1pjLiE --clone 7UVimffxr9ow1uXYxsr4LHAcV58mLzhmwaeKvJ1pjLiE --clone HT2PLQBcG5EiCcNSaMHAjSgd9F98ecpATbk4Sk5oYuM
+solana-test-validator --url "https://api.devnet.solana.com" --clone Dpw1EAVrSB1ibxiDQyTAW6Zip3J4Btk2x4SgApQCeFbX  --clone 7UVimffxr9ow1uXYxsr4LHAcV58mLzhmwaeKvJ1pjLiE --clone HT2PLQBcG5EiCcNSaMHAjSgd9F98ecpATbk4Sk5oYuM --reset
 ```

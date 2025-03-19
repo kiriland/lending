@@ -67,7 +67,7 @@ pub fn process_deposit(
         balance.change_deposited_shares(amount)?;
         balance.deposited += amount;
 
-        user.last_updated_deposit = Clock::get()?.unix_timestamp;
+        balance.last_updated_deposit = Clock::get()?.unix_timestamp;
         return Ok(());
     } 
     let deposit_ratio = amount
@@ -93,7 +93,7 @@ balance.bank_address = bank.key();
 balance.change_deposited_shares(user_shares)?;
 balance.deposited = balance.deposited.checked_add(amount).ok_or(ErrorCode::Overflow)?;
 
-user.last_updated_deposit = Clock::get()?.unix_timestamp;
+balance.last_updated_deposit = Clock::get()?.unix_timestamp;
 Ok(())
 
 }

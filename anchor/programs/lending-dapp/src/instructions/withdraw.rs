@@ -54,10 +54,11 @@ pub fn process_withdraw(
     let user = &mut context.accounts.user_account;
     let bank_address = &context.accounts.bank.key();
     let bank = &mut context.accounts.bank;
-    let last_updated_deposit = user.last_updated_deposit;
+    
     let balance = user
         .get_balance(bank_address)
         .unwrap();
+    let last_updated_deposit = balance.last_updated_deposit;
     let deposited_value = balance.deposited;
     let time_diff = last_updated_deposit - Clock::get()?.unix_timestamp;
     bank.total_deposits = (bank.total_deposits as f64 * E.powf(bank.interest_rate as f64 * time_diff as f64)) as u64;

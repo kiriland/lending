@@ -85,23 +85,20 @@ pub fn process_liquidate(context: Context<Liquidate>) -> Result<()> {
     let total_borrowed: u64;
     let collateral_mint = context.accounts.collateral_mint.to_account_info().key();
     let borrowed_mint = context.accounts.borrowed_mint.to_account_info().key();
+    let liquidator_collat_balance: &mut crate::Balance =
+        liquidator_account.get_balance(&collateral_mint).unwrap();
 
     let new_collateral_amount = calculate_accrued_interest(
-        liquidator_account
-            .get_balance(&collateral_mint)
-            .unwrap()
-            .deposited,
+        liquidator_collat_balance.deposited,
         collateral_bank.interest_rate,
-        liquidator_account.last_updated_deposit,
+        liquidator_collat_balance.last_updated_deposit,
     )?;
     total_collateral = collateral_price.price as u64 * new_collateral_amount;
+    let liquidator_borrow_balance = liquidator_account.get_balance(&borrowed_mint).unwrap();
     let new_borrowed_amount = calculate_accrued_interest(
-        liquidator_account
-            .get_balance(&borrowed_mint)
-            .unwrap()
-            .borrowed,
+        liquidator_borrow_balance.borrowed,
         borrowed_bank.interest_rate,
-        liquidator_account.last_updated_borrow,
+        liquidator_borrow_balance.last_updated_borrow,
     )?;
     total_borrowed = borrowed_price.price as u64 * new_borrowed_amount;
 
