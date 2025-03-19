@@ -9,16 +9,19 @@ import {
     createMintToInstruction,
     mintTo,
   } from '@solana/spl-token';
-import { useConnection, useWallet } from '@solana/wallet-adapter-react'
-import { BN, Program } from '@coral-xyz/anchor'
+import { useConnection, useWallet, AnchorWallet, useAnchorWallet } from '@solana/wallet-adapter-react'
+import { BN, Program,Wallet} from '@coral-xyz/anchor'
 import { Cluster, Keypair, PublicKey, SystemProgram,Transaction,  LAMPORTS_PER_SOL  } from '@solana/web3.js'
 import { useMutation, useQuery,useQueryClient } from '@tanstack/react-query'
 import { useMemo } from 'react'
 import toast from 'react-hot-toast'
 import { useCluster } from '../cluster/cluster-data-access'
 import { useAnchorProvider } from '../solana/solana-provider'
+import { getLogs } from '@solana-developers/helpers'
 import { useTransactionToast } from '../ui/ui-layout'
-
+import { PythSolanaReceiver, InstructionWithEphemeralSigners } from '@pythnetwork/pyth-solana-receiver';
+import { HermesClient } from "@pythnetwork/hermes-client";
+import { sendTransactions } from "@pythnetwork/solana-utils";
 interface InitBankArgs {
   signer: PublicKey
   mint: PublicKey
@@ -26,6 +29,7 @@ interface InitBankArgs {
   borrowRate: BN
   priceFeed: string
   name: string
+  interestRate: BN,
 }
 
 interface DepositArgs {
@@ -39,6 +43,16 @@ interface DepositArgs {
   interface CloseBankArgs {
     mint: PublicKey
     
+  }
+  interface RepayArgs {
+    mint: PublicKey
+    amount: BN
+  }
+  interface BorrowTokenArgs {
+    borrowMint: PublicKey
+  
+    collateralMint: PublicKey
+    amount: BN
   }
 export async function findUserAccount(
   userPubkey: PublicKey,
@@ -61,6 +75,17 @@ export async function findBankAccount(
     return bankAccount
   }
 
+  function toHexString(byteArray:number[]) {
+    return "0x" + Array.from(byteArray, function(byte) {
+      return ('0' + (byte & 0xFF).toString(16)).slice(-2);
+    }).join('')
+  }
+  const SOL_PRICE_FEED_ID =
+      '0xef0d8b6fda2ceba41da15d4095d1da392a0d2f8ed0c6c7bc0f4cfac8c280b56d';
+     const USDC_PRICE_FEED_ID =
+    "0xeaa020c61cc479712813461ce153894a96a6c00b21ed0cfc2798d1f9a9e9c94a";
+const USDT_PRICE_FEED_ID =
+    "0x2b89b9dc8fdf9f34709a5b106b472f0f39bb6ca9ce04b0fd7f2e971688e2e53b";
 export function useLendingProgram() {
   const { connection } = useConnection()
   const { cluster } = useCluster()
@@ -68,8 +93,14 @@ export function useLendingProgram() {
   const provider = useAnchorProvider()
   const programId = useMemo(() => getLendingProgramId(cluster.network as Cluster), [cluster])
   const program = useMemo(() => getLendingProgram(provider, programId), [provider, programId])
+  
   const {wallet,publicKey , sendTransaction} = useWallet()
+  const anchorWallet = useAnchorWallet();
+  
+
     const client = useQueryClient()
+
+  
     const createMints = useMutation({
         mutationKey: ['lending', 'create-mints', { cluster }],
         mutationFn: async () => {
@@ -225,6 +256,57 @@ export function useLendingProgram() {
     onError: (error: any) =>
       toast.error(`Failed to initialize user account: ${error.message}`),
   })
+  const borrowToken = useMutation({
+    mutationKey: ['lending', 'borrow', { cluster }],
+    mutationFn: async ({ borrowMint, collateralMint, amount, }: BorrowTokenArgs) => {
+      const banks = await program.account.bank.all();
+
+      // Filter client‑side for the bank that matches the collateral mint.
+      const collateralBank = banks.find(
+        (bankAccount) =>
+          bankAccount.account.tokenMintAddress.toString() === collateralMint.toString()
+      );
+      let priceFeedId = collateralBank?.account.config.oracleFeedId;
+      
+      const pythSolanaReceiver =  new PythSolanaReceiver({
+        connection,
+        wallet: anchorWallet as Wallet,
+      });
+      console.log(toHexString(priceFeedId!).toString());
+    const solUsdPriceFeedAccount = pythSolanaReceiver
+  .getPriceFeedAccountAddress(0, toHexString(priceFeedId!).toString())
+  .toBase58();
+  const solUsdPriceFeedAccountPubkey = new PublicKey(solUsdPriceFeedAccount);
+
+
+const feedAccountInfo = await connection.getAccountInfo(
+  solUsdPriceFeedAccountPubkey
+);
+    
+console.log('solUsdPriceFeedAccountPubkey:',solUsdPriceFeedAccountPubkey.toBase58())
+console.log('feedAccountInfo:', feedAccountInfo)
+     
+return program.methods
+.borrow(new BN(amount))
+.accounts({
+  signer: anchorWallet?.publicKey,
+  borrowMint: borrowMint,
+  collateralMint: collateralMint,
+  priceUpdate: solUsdPriceFeedAccount,
+  tokenProgram: TOKEN_PROGRAM_ID
+})
+.rpc()
+
+      
+    },
+    onSuccess: (signature: string) => {
+      transactionToast(signature)
+      bankAccounts.refetch(),
+      userAccounts.refetch()
+    },
+    onError: (error: any) => {
+      toast.error(`Failed to borrow: ${error.message}`);},
+  })
   const initBank = useMutation({
     mutationKey: ['lending', 'init-bank', { cluster }],
     mutationFn: async ({
@@ -287,7 +369,24 @@ export function useLendingProgram() {
       },
       onError: () => toast.error('Failed to withdraw'),
   })
-  
+  const repayToken = useMutation({
+    mutationKey: ['lending', 'repay', { cluster }],    mutationFn: async ({ mint, amount }: RepayArgs) => {
+        return program.methods
+          .repay(amount)
+          .accounts({
+            signer: publicKey!,
+                    mint: mint,
+                    tokenProgram: TOKEN_PROGRAM_ID,
+          })
+          .rpc()
+      },
+      onSuccess: (signature: string) => {
+        transactionToast(signature)
+        bankAccounts.refetch()
+        userAccounts.refetch()
+      },
+      onError: () => toast.error('Failed to repay'),
+  })
 
   return {
     program,
@@ -301,6 +400,8 @@ export function useLendingProgram() {
     userAccounts,
     closeBank,
     withdrawToken,
+    borrowToken,
+    repayToken,
   }
 }
 

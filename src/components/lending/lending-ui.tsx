@@ -67,7 +67,9 @@ export function BanksNum () {
     <div className="space-y-4 p-4">
       {bankAccounts.data?.map((bank, index) => (
         <div key={index} className="border rounded p-4 shadow-sm">
-          <CloseBankButton mint={bank.account.tokenMintAddress.toString()}/>
+          <div><CloseBankButton mint={bank.account.tokenMintAddress.toString()}/>
+          <BorrowButton borrowMint={bank.account.tokenMintAddress.toString() } tickerSymbol={bank.account.config.tickerSymbol.toString()} priceFeedId={bank.account.config.oracleFeedId.toString()}/>
+          <RepayButton mint={bank.account.tokenMintAddress.toString()}/></div>
           <p>
             <strong>Bank Account:</strong> {bank.publicKey.toString()}
           </p>
@@ -147,6 +149,7 @@ export function InitBankButton({priceFeed,tokenName,mint}:{priceFeed: string, to
         signer: Signer!,
         mint: new PublicKey(mint),
         depositRate,
+        interestRate: new BN(100000),
         borrowRate,
         priceFeed,
         name: tokenName,
@@ -336,6 +339,99 @@ function ModalCloseBank({ hide, show }: { hide: () => void; show: boolean }) {
     </AppModal>
   )
 }
+export function BorrowButton({ borrowMint,tickerSymbol,priceFeedId }: { borrowMint: String,tickerSymbol: String, priceFeedId: String }) {
+  const { borrowToken } = useLendingProgram();
+  const { publicKey } = useWallet();
+  const [showBorrowTokenModal, setShowBorrowTokenModal] = useState(false)
+ 
+  return (
+    <div><BorrowTokenModal show={showBorrowTokenModal} hide={() => setShowBorrowTokenModal(false)} borrowMint={borrowMint} />
+    <button
+      className="btn btn-xs lg:btn-md btn-primary"
+      onClick={() => setShowBorrowTokenModal(true)}
+      disabled={borrowToken.isPending}
+    >
+      Borrow {tickerSymbol} {borrowToken.isPending && '...'}
+    </button>
+    </div>
+  );
+ }
+
+ function BorrowTokenModal({ hide, show, borrowMint}: { hide: () => void; show: boolean,borrowMint: String, }) {
+  const wallet = useWallet()
+  const { borrowToken } = useLendingProgram();
+  const [amount, setAmount] = useState('')
+  const [collateralMint, setCollateralMint] = useState('')
+
+  if ( !wallet.sendTransaction) {
+    return <div>Wallet not connected</div>
+  }
+
+  return (
+    <AppModal
+      hide={hide}
+      show={show}
+      title="Borrow Token"
+      submitDisabled={!borrowMint || !collateralMint  || borrowToken.isPending}
+      submitLabel="Borrow Token"
+      submit={() => {
+        borrowToken
+          .mutateAsync({
+            collateralMint: new PublicKey(collateralMint),
+          
+            borrowMint: new PublicKey(borrowMint),
+            amount: new BN(amount)
+          })
+          .then(() => hide())
+      }}
+    >
+      <input
+        disabled={borrowToken.isPending}
+        type="text"
+        placeholder="Amount to Borrow"
+        className="input input-bordered w-full"
+        value={amount}
+        onChange={(e) => setAmount(e.target.value)}
+      />
+      <input
+        disabled={borrowToken.isPending}
+        type="text"
+        placeholder="Collateral Mint"
+        className="input input-bordered w-full"
+        value={collateralMint}
+        onChange={(e) => setCollateralMint(e.target.value)}
+      />
+      
+    </AppModal>
+  )
+}
+
+export function RepayButton({ mint }: { mint: String }) {
+  const { repayToken } = useLendingProgram();
+  const { publicKey } = useWallet();
+  const [showCloseBankModal, setShowCloseBankModal] = useState(false)
+ 
+  const handleCloseBank = async () => {
+
+
+    try {
+      await repayToken.mutateAsync({
+        amount: new BN(1),
+        mint: new PublicKey(mint),
+      });
+    } catch (error) {
+      console.error(error);
+    }
+  };
+  return (<button
+    className="btn btn-xs lg:btn-md btn-primary"
+    onClick={handleCloseBank}
+    disabled={repayToken.isPending}
+  >
+    Repay {repayToken.isPending && '...'}
+  </button>)
+ }
+
 // export function CounterList() {
 //   const { accounts, getProgramAccount } = useLendingProgram()
 
