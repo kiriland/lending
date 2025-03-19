@@ -54,10 +54,9 @@ pub fn process_repay(context: Context<Repay>, amount: u64) -> Result<()> {
     let last_updated_borrow = user.last_updated_borrow;
     let balance = user.get_balance(bank_address).unwrap();
     let borrowed_value = balance.borrowed;
-    let time_diff = Clock::get()?.unix_timestamp - last_updated_borrow;
 
     bank.total_borrowed =
-        calculate_accrued_interest(bank.total_borrowed, bank.interest_rate, time_diff)?;
+        calculate_accrued_interest(bank.total_borrowed, bank.interest_rate, last_updated_borrow)?;
 
     let value_per_share = bank.total_borrowed as f64 / bank.total_borrowed_shares as f64;
     let amount_to_repay = borrowed_value as f64 / value_per_share as f64;
