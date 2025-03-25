@@ -7,7 +7,7 @@ use anchor_spl::{
 };
 use pyth_solana_receiver_sdk::price_update::{get_feed_id_from_hex, PriceUpdateV2};
 
-use crate::{Bank, User, MAX_AGE, SOL_USD_FEED_ID, USDC_USD_FEED_ID};
+use crate::{Bank, User, MAX_AGE};
 
 use crate::error::ErrorCode;
 
@@ -51,7 +51,8 @@ pub struct Borrow<'info> {
         associated_token::token_program = token_program,
     )]
     pub user_token_account: InterfaceAccount<'info, TokenAccount>,
-    pub price_update: Account<'info, PriceUpdateV2>,
+    pub collateral_price_update: Account<'info, PriceUpdateV2>,
+    pub borrow_price_update: Account<'info, PriceUpdateV2>,
     pub token_program: Interface<'info, TokenInterface>,
     pub system_program: Program<'info, System>,
     pub associated_token_program: Program<'info, AssociatedToken>,
@@ -60,61 +61,54 @@ pub struct Borrow<'info> {
 pub fn process_borrow(context: Context<Borrow>, amount: u64) -> Result<()> {
     let borrow_bank = &mut context.accounts.borrow_bank;
     let user = &mut context.accounts.user_account;
-
-    let price_update = &mut context.accounts.price_update;
-    let borrow_price: f64;
-    let total_collateral: u64;
-
-    match borrow_bank.config.ticker_symbol.as_str() {
-        "SOL" => {
-            let usdc_balance = user
-                .balances
-                .iter_mut()
-                .find(|balance: &&mut crate::Balance| {
-                    balance.bank_address == context.accounts.collateral_bank.key()
-                })
-                .unwrap();
-            let usdc_feed_id = get_feed_id_from_hex(USDC_USD_FEED_ID)?;
-            let usdc_price =
-                price_update.get_price_no_older_than(&Clock::get()?, MAX_AGE, &usdc_feed_id)?;
-            let new_value = calculate_accrued_interest(
-                usdc_balance.deposited,
-                borrow_bank.interest_rate,
-                usdc_balance.last_updated_deposit,
-            )?;
-            // 1 USDC
-            borrow_price = 100022121.0;
-            total_collateral = usdc_price.price as u64 * new_value;
-            borrow_bank.close_factor = amount;
-        }
-        // Works for USDC and USDT. Constrain: SOL can only be borrowed with USDC collateral, and everything else can only be borrowed with SOL collateral
-        _ => {
-            let sol_balance = user
-                .balances
-                .iter_mut()
-                .find(|balance| balance.bank_address == context.accounts.collateral_bank.key())
-                .unwrap();
-            let sol_feed_id = get_feed_id_from_hex(SOL_USD_FEED_ID)?;
-            let sol_price =
-                price_update.get_price_no_older_than(&Clock::get()?, MAX_AGE, &sol_feed_id)?;
-            let new_value = calculate_accrued_interest(
-                sol_balance.deposited,
-                borrow_bank.interest_rate,
-                sol_balance.last_updated_deposit,
-            )?;
-            // total_collateral = sol_price.price as u64 * new_value;
-            let borrow_feed_id = borrow_bank.config.oracle_feed_id;
-            // let borrow_price =
-            //     price_update.get_price_no_older_than(&Clock::get()?, MAX_AGE, &borrow_feed_id)?;
-            borrow_price = 12532212199.0;
-            total_collateral = sol_price.price as u64 * new_value;
-        }
+    let now = Clock::get()?;
+    let decimals = context.accounts.borrow_mint.decimals as u64;
+    
+    let time_elapsed: i64 = now.unix_timestamp - borrow_bank.last_updated_borrow;
+    if time_elapsed > 0 {
+        let interest = calculate_accrued_interest(
+            borrow_bank.total_borrowed,
+            borrow_bank.interest_rate,
+            borrow_bank.last_updated_borrow,
+        )?;
+        borrow_bank.total_borrowed = borrow_bank
+            .total_borrowed
+            .checked_add(interest)
+            .ok_or(ErrorCode::Overflow)?;
+        borrow_bank.last_updated_borrow = now.unix_timestamp;
     }
-    let borrowable_amount =
-        (total_collateral as f64) * (borrow_bank.liquidation_threshold as f64 / 100.0);
-    if borrowable_amount < amount as f64 * borrow_price as f64 {
+
+    let collateral_bank = &context.accounts.collateral_bank;
+    let collateral_balance = user
+        .balances
+        .iter()
+        .find(|b| b.bank_address == collateral_bank.key())
+        .ok_or(ErrorCode::InsufficientFunds)?;
+    let collateral_feed_id = collateral_bank.config.oracle_feed_id;
+    let collateral_price = context.accounts.collateral_price_update.get_price_no_older_than(&now, MAX_AGE, &collateral_feed_id)?.price as u128;
+    let updated_collateral = calculate_accrued_interest(
+        collateral_balance.deposited,
+        collateral_bank.interest_rate,
+        collateral_balance.last_updated_deposit,
+    )?;
+    let collateral_value_usd = updated_collateral as u128 * collateral_price;
+
+    let borrow_feed_id = borrow_bank.config.oracle_feed_id;
+    let borrow_price = context.accounts.borrow_price_update.get_price_no_older_than(&now, MAX_AGE, &borrow_feed_id)?.price as u128;
+    let borrow_value_usd = amount as u128 * borrow_price;
+    
+    let allowed_borrow = (collateral_value_usd * borrow_bank.max_ltv as u128) ;
+    
+    if borrow_value_usd > allowed_borrow {
         return Err(ErrorCode::OverBorrowableAmount.into());
     }
+    let share_price = if borrow_bank.total_borrowed_shares == 0 {
+        decimals 
+    } else {
+        ((borrow_bank.total_borrowed as u128 * decimals as u128) / borrow_bank.total_borrowed_shares as u128) as u64
+    };
+
+    let shares_to_mint = amount as u128 * decimals as u128 / share_price as u128;
     let seeds = &[
         b"treasury",
         context.accounts.borrow_mint.to_account_info().key.as_ref(),
@@ -134,28 +128,21 @@ pub fn process_borrow(context: Context<Borrow>, amount: u64) -> Result<()> {
     );
     transfer_checked(cpi_context, amount, context.accounts.borrow_mint.decimals)?;
 
-    if borrow_bank.total_borrowed == 0 {
-        borrow_bank.total_borrowed = amount;
-        borrow_bank.total_borrowed_shares = amount;
-        let balance = user.get_balance_or_create(&borrow_bank.key()).unwrap();
-        balance.borrowed = amount;
-        balance.borrowed_shares = amount;
+    borrow_bank.total_borrowed = borrow_bank
+    .total_borrowed
+    .checked_add(amount)
+    .ok_or(ErrorCode::Overflow)?;
 
-        balance.last_updated_borrow = Clock::get()?.unix_timestamp;
-        return Ok(());
-    }
-    let borrow_ratio = amount.checked_div(borrow_bank.total_borrowed).unwrap();
-    let user_shares = borrow_bank
-        .total_borrowed_shares
-        .checked_mul(borrow_ratio)
-        .unwrap();
+borrow_bank.total_borrowed_shares = borrow_bank
+    .total_borrowed_shares
+    .checked_add(shares_to_mint as u64)
+    .ok_or(ErrorCode::Overflow)?;
 
-    let balance = user.get_balance_or_create(&borrow_bank.key()).unwrap();
+
+    let balance = user.get_balance_or_create(&borrow_bank.key())?;
     balance.borrowed += amount;
-    balance.borrowed_shares += user_shares as u64;
-    borrow_bank.total_borrowed += amount;
-    borrow_bank.total_borrowed_shares += user_shares;
+    balance.borrowed_shares += shares_to_mint as u64;
+    balance.last_updated_borrow = now.unix_timestamp;
 
-    balance.last_updated_borrow = Clock::get()?.unix_timestamp;
     Ok(())
 }

@@ -13,7 +13,7 @@ pub struct Bank {
     pub liquidation_bonus: u64,
     pub close_factor: u64,
     pub max_ltv: f64,
-    pub last_updated: i64,
+    pub last_updated_borrow: i64,
     pub interest_rate: f64,
     pub config: BankConfig,
 }
