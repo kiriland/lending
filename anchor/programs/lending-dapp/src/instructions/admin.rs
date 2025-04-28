@@ -75,7 +75,8 @@ pub struct CloseBank<'info> {
     )]
     pub user_account: Account<'info, User>,
     #[account(
-        mut,
+        init_if_needed,
+        payer = signer,
         associated_token::mint = mint,
         associated_token::authority = signer,
         associated_token::token_program = token_program,
@@ -88,8 +89,8 @@ pub struct CloseBank<'info> {
 
 pub fn process_init_bank(
     context: Context<InitBank>,
-    liquidation_threshold: u64,
-    max_ltv: u64,
+    liquidation_threshold: f64,
+    max_ltv: f64,
     oracle_feed_id_hex: &str,
     ticker_symbol: String,
 ) -> Result<()> {
@@ -98,7 +99,7 @@ pub fn process_init_bank(
     bank.token_mint_address = context.accounts.mint.key();
     bank.liquidation_threshold = liquidation_threshold;
     bank.max_ltv = max_ltv;
-    bank.interest_rate = 0.05 as u64;
+    bank.interest_rate = 0.05;
     bank.config.oracle_feed_id = get_feed_id_from_hex(oracle_feed_id_hex)?;
     bank.config.ticker_symbol = ticker_symbol;
     Ok(())

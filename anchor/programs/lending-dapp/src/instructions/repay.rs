@@ -9,6 +9,7 @@ use anchor_spl::{
 
 use crate::error::ErrorCode;
 
+use super::calculate_accrued_interest;
 use super::transfer_tokens;
 
 #[derive(Accounts)]
@@ -50,15 +51,16 @@ pub fn process_repay(context: Context<Repay>, amount: u64) -> Result<()> {
     let bank_address = &context.accounts.bank.key();
     let bank = &mut context.accounts.bank;
 
-    let last_updated_borrow = user.last_updated_borrow;
     let balance = user.get_balance(bank_address).unwrap();
     let borrowed_value = balance.borrowed;
-    let time_diff = last_updated_borrow - Clock::get()?.unix_timestamp;
-    bank.total_borrowed +=
-        (bank.total_borrowed as f64 * E.powf(bank.interest_rate as f64 * time_diff as f64)) as u64;
+    let last_updated_borrow = balance.last_updated_borrow;
+
+    bank.total_borrowed =
+        calculate_accrued_interest(bank.total_borrowed, bank.interest_rate, last_updated_borrow)?;
+
     let value_per_share = bank.total_borrowed as f64 / bank.total_borrowed_shares as f64;
-    let amount_to_repay = borrowed_value * value_per_share as u64;
-    if amount > amount_to_repay {
+    let amount_to_repay = borrowed_value as f64 / value_per_share as f64;
+    if amount as f64 > amount_to_repay {
         return Err(ErrorCode::OverRepayableAmount.into());
     }
     transfer_tokens(
@@ -69,14 +71,11 @@ pub fn process_repay(context: Context<Repay>, amount: u64) -> Result<()> {
         &context.accounts.signer,
         &context.accounts.token_program,
     )?;
-    let borrow_ratio = amount.checked_div(bank.total_borrowed).unwrap();
-    let user_shares = bank
-        .total_borrowed_shares
-        .checked_mul(borrow_ratio)
-        .unwrap();
-    balance.borrowed -= amount;
+    let borrow_ratio = amount as f64 / (bank.total_borrowed) as f64;
+    let user_shares = bank.total_borrowed_shares as f64 * borrow_ratio as f64;
+    balance.borrowed -= amount as u64;
     balance.borrowed_shares -= user_shares as u64;
-    bank.total_borrowed -= amount;
-    bank.total_borrowed_shares -= user_shares;
+    bank.total_borrowed -= amount as u64;
+    bank.total_borrowed_shares -= user_shares as u64;
     Ok(())
 }

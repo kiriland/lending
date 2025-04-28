@@ -18,4 +18,8 @@ pub enum ErrorCode {
     InvalidCollateralMint,
     #[msg("Unauthorized: Only the bank authority can close the bank.")]
     Unauthorized,
+    #[msg("DivisionByZero.")]
+    DivisionByZero,
+    #[msg("Invalid Ticker Supplied.")]
+    InvalidTicker
 }

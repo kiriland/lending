@@ -56,7 +56,8 @@ pub fn process_deposit(
 
     let bank = &mut context.accounts.bank;
     let user = &mut context.accounts.user_account;
-
+    let decimals = context.accounts.mint.decimals ;
+    
     if bank.total_deposits == 0 {
         bank.total_deposits = amount;
         bank.total_deposits_shares = amount;
@@ -67,16 +68,23 @@ pub fn process_deposit(
         balance.change_deposited_shares(amount)?;
         balance.deposited += amount;
 
-        user.last_updated_deposit = Clock::get()?.unix_timestamp;
+        balance.last_updated_deposit = Clock::get()?.unix_timestamp;
         return Ok(());
     } 
-    let deposit_ratio = amount
-    .checked_mul(bank.total_deposits_shares)
-    .ok_or(ErrorCode::Overflow)?
-    .checked_div(bank.total_deposits)
-    .ok_or(ErrorCode::InsufficientFunds)?;
-let user_shares = deposit_ratio;
-
+    let share_price = if bank.total_deposits_shares == 0 {
+        decimals as u64 // 1.0 in fixed point
+    } else {
+        bank.total_deposits
+            .checked_mul(decimals as u64)
+            .unwrap()
+            .checked_div(bank.total_deposits_shares)
+            .unwrap()
+    };
+    let shares_to_mint = amount
+        .checked_mul(decimals as u64)
+        .unwrap()
+        .checked_div(share_price)
+        .unwrap();
 
 bank.total_deposits = bank
     .total_deposits
@@ -84,17 +92,17 @@ bank.total_deposits = bank
     .ok_or(ErrorCode::Overflow)?;
 bank.total_deposits_shares = bank
     .total_deposits_shares
-    .checked_add(user_shares)
+    .checked_add(shares_to_mint)
     .ok_or(ErrorCode::Overflow)?;
 
 let balance = user
     .get_balance_or_create(&bank.key())
     .unwrap();
 balance.bank_address = bank.key();
-balance.change_deposited_shares(user_shares)?;
+balance.change_deposited_shares(shares_to_mint)?;
 balance.deposited = balance.deposited.checked_add(amount).ok_or(ErrorCode::Overflow)?;
 
-user.last_updated_deposit = Clock::get()?.unix_timestamp;
+balance.last_updated_deposit = Clock::get()?.unix_timestamp;
 Ok(())
 
 }

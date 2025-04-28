@@ -7,6 +7,8 @@ pub struct Balance {
     pub deposited_shares: u64,
     pub borrowed: u64,
     pub borrowed_shares: u64,
+    pub last_updated_deposit: i64,
+    pub last_updated_borrow: i64,
 }
 pub const MAX_TOKEN_BALANCES: usize = 3;
 #[account]
@@ -15,9 +17,6 @@ pub struct User {
     pub owner: Pubkey,
 
     pub balances: [Balance; MAX_TOKEN_BALANCES],
-
-    pub last_updated_deposit: i64,
-    pub last_updated_borrow: i64,
 }
 impl User {
     pub fn get_balance(&mut self, bank_address: &Pubkey) -> Option<&mut Balance> {
@@ -60,6 +59,8 @@ impl Balance {
             deposited_shares: 0,
             borrowed: 0,
             borrowed_shares: 0,
+            last_updated_borrow: 0,
+            last_updated_deposit: 0,
         }
     }
     pub fn clear(&mut self) {

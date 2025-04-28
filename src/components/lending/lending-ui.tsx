@@ -5,11 +5,12 @@ import { useMemo, useState } from 'react'
 import { AppModal,ellipsify } from '../ui/ui-layout'
 import { BN, Program } from '@coral-xyz/anchor'
 import { ExplorerLink } from '../cluster/cluster-ui'
-import { useLendingProgram, useLendingProgramAccount } from './lending-data-access'
-import { useWallet } from '@solana/wallet-adapter-react'
+import { useGetTokenAccounts, useLendingProgram, useLendingProgramAccount } from './lending-data-access'
+import { useWallet,useConnection } from '@solana/wallet-adapter-react'
 import exp from 'constants'
 import { getLendingProgram, getLendingProgramId } from '@project/anchor'
-import { TOKEN_PROGRAM_ID } from '@solana/spl-token'
+import { TOKEN_PROGRAM_ID, createMint, getAssociatedTokenAddress, mintTo } from '@solana/spl-token'
+import { useGetBalance } from '../lending/lending-data-access'
 
 
 type Mode = 'deposit' | 'withdraw';
@@ -20,10 +21,10 @@ export function UserInit() {
   return (
     <button
       className="btn btn-xs lg:btn-md btn-primary"
-      onClick={() => initUser.mutateAsync()}
+      onClick={() => initUser.mutateAsync(publicKey!)}
       disabled={initUser.isPending}
     >
-      UserInit {initUser.isPending && '...'}
+      Register {initUser.isPending && '...'}
     </button>
     
   )
@@ -48,15 +49,16 @@ export function UserNum () {
                 <span>Deposited Shares: {balance.depositedShares.toString()}</span> |{' '}
                 <span>Borrowed: {balance.borrowed.toString()}</span> |{' '}
                 <span>Borrowed Shares: {balance.borrowedShares.toString()}</span>
+                <p>
+            <strong>Last Updated Deposit:</strong> {balance.lastUpdatedDeposit.toString()}
+          </p>
+          <p>
+            <strong>Last Updated Borrow:</strong> {balance.lastUpdatedBorrow.toString()}
+          </p>
               </div>
             ))}
           </div>
-          <p>
-            <strong>Last Updated Deposit:</strong> {account.account.lastUpdatedDeposit.toString()}
-          </p>
-          <p>
-            <strong>Last Updated Borrow:</strong> {account.account.lastUpdatedBorrow.toString()}
-          </p>
+          
         </div>
       ))}
     </div>)
@@ -67,7 +69,14 @@ export function BanksNum () {
     <div className="space-y-4 p-4">
       {bankAccounts.data?.map((bank, index) => (
         <div key={index} className="border rounded p-4 shadow-sm">
-          <CloseBankButton mint={bank.account.tokenMintAddress.toString()}/>
+            <div className="flex space-x-2 justify-between">
+              <div className="flex space-x-2">
+              <BorrowButton borrowMint={bank.account.tokenMintAddress.toString()} tickerSymbol={bank.account.config.tickerSymbol.toString()} priceFeedId={bank.account.config.oracleFeedId.toString()} />
+              <RepayButton mint={bank.account.tokenMintAddress.toString()} />
+              <DepositTokenButton mint={bank.account.tokenMintAddress.toString()} />
+              </div>
+              <CloseBankButton mint={bank.account.tokenMintAddress.toString()} />
+            </div>
           <p>
             <strong>Bank Account:</strong> {bank.publicKey.toString()}
           </p>
@@ -107,29 +116,20 @@ export function BanksNum () {
             <strong>Max LTV:</strong> {bank.account.maxLtv.toString()}
           </p>
           <p>
-            <strong>Last Updated:</strong> {bank.account.lastUpdated.toString()}
+            <strong>Last Updated Borrow:</strong> {bank.account.lastUpdatedBorrow.toString()}
           </p>
           <p>
             <strong>Interest Rate:</strong> {bank.account.interestRate.toString()}
           </p>
           <p>
-            <strong>Config:</strong> {JSON.stringify(bank.account.config)}
+            <strong>Config:</strong> {JSON.stringify(bank.account.config.tickerSymbol)}
           </p>
         </div>
       ))}
     </div>
   );
 }
-export function MintBanks () {
-  const { createMints } = useLendingProgram()
-  return (<button
-    className="btn btn-xs lg:btn-md btn-primary"
-    onClick={() => createMints.mutateAsync()}
-    disabled={createMints.isPending}
-  >
-    Create Tokens {createMints.isPending && '...'}
-  </button>)
-}
+
 export function InitBankButton({priceFeed,tokenName,mint}:{priceFeed: string, tokenName: string, mint: string}) {
   const { initBank } = useLendingProgram();
   const { publicKey } = useWallet();
@@ -146,10 +146,11 @@ export function InitBankButton({priceFeed,tokenName,mint}:{priceFeed: string, to
       await initBank.mutateAsync({
         signer: Signer!,
         mint: new PublicKey(mint),
-        depositRate,
-        borrowRate,
-        priceFeed,
-        name: tokenName,
+        liquidationThreshold: new BN(1),
+        maxLtv: new BN(0.7),
+        oracleKey: priceFeed,
+        tickerSymbol: tokenName,
+        interestRate: new BN(0.1),
       });
     } catch (error) {
       console.error(error);
@@ -167,12 +168,12 @@ export function InitBankButton({priceFeed,tokenName,mint}:{priceFeed: string, to
   );
 }
 
-export function DepositTokenButton() {
+export function DepositTokenButton({ mint }: { mint: String }) {
   const { depositToken, withdrawToken } = useLendingProgram();
   const { publicKey } = useWallet();
   const [showSendModal, setShowSendModal] = useState(false)
   return (
-    <div><ModalSend show={showSendModal} hide={() => setShowSendModal(false)} />
+    <div><ModalSend show={showSendModal} hide={() => setShowSendModal(false)} mint={new PublicKey(mint)}/>
     <button
       className="btn btn-xs lg:btn-md btn-primary"
       onClick={() => setShowSendModal(true)}
@@ -184,26 +185,30 @@ export function DepositTokenButton() {
   );
 }
 
-function ModalSend({ hide, show }: { hide: () => void; show: boolean }) {
-  const wallet = useWallet()
+function ModalSend({ hide, show, mint}: { hide: () => void; show: boolean,mint: PublicKey }) {
+  const {wallet,publicKey,sendTransaction} = useWallet()
   const { depositToken, withdrawToken } = useLendingProgram();
-  const [mint, setMint] = useState('')
+  
   const [amount, setAmount] = useState('1')
   const [mode, setMode] = useState<Mode>('deposit');
-  if ( !wallet.sendTransaction) {
+  if ( !sendTransaction) {
     return <div>Wallet not connected</div>
   }
   const handleSubmit = async () => {
+    const decimals = 6; // Replace with the actual decimals for the token
+    const scaledAmount = new BN(Math.floor(parseFloat(amount) * Math.pow(10, decimals)));
+    
     try {
       if (mode === 'deposit') {
         await depositToken.mutateAsync({
+          signer: publicKey!,
           mint: new PublicKey(mint),
-          amount: new BN(amount),
+          amount: scaledAmount,
         });
       } else {
         await withdrawToken.mutateAsync({
           mint: new PublicKey(mint),
-          amount: new BN(amount),
+          amount: scaledAmount,
         });
       }
       hide();
@@ -239,19 +244,12 @@ function ModalSend({ hide, show }: { hide: () => void; show: boolean }) {
       </button>
     </div>
   </div>
-      <input
-        disabled={depositToken.isPending}
-        type="text"
-        placeholder="Bank Address Mint"
-        className="input input-bordered w-full"
-        value={mint}
-        onChange={(e) => setMint(e.target.value)}
-      />
+      
       <input
         disabled={depositToken.isPending}
         type="number"
         step="any"
-        min="1"
+        min="0.000000001"
         placeholder="Amount"
         className="input input-bordered w-full"
         value={amount}
@@ -336,6 +334,202 @@ function ModalCloseBank({ hide, show }: { hide: () => void; show: boolean }) {
     </AppModal>
   )
 }
+export function BorrowButton({ borrowMint,tickerSymbol,priceFeedId }: { borrowMint: String,tickerSymbol: String, priceFeedId: String }) {
+  const { borrowToken } = useLendingProgram();
+  const { publicKey } = useWallet();
+  const [showBorrowTokenModal, setShowBorrowTokenModal] = useState(false)
+ 
+  return (
+    <div><BorrowTokenModal show={showBorrowTokenModal} hide={() => setShowBorrowTokenModal(false)} borrowMint={borrowMint} />
+    <button
+      className="btn btn-xs lg:btn-md btn-primary"
+      onClick={() => setShowBorrowTokenModal(true)}
+      disabled={borrowToken.isPending}
+    >
+      Borrow {tickerSymbol} {borrowToken.isPending && '...'}
+    </button>
+    </div>
+  );
+ }
+
+ function BorrowTokenModal({ hide, show, borrowMint}: { hide: () => void; show: boolean,borrowMint: String, }) {
+  const wallet = useWallet()
+  const { borrowToken } = useLendingProgram();
+  const [amount, setAmount] = useState('')
+  const [collateralMint, setCollateralMint] = useState('')
+
+  if ( !wallet.sendTransaction) {
+    return <div>Wallet not connected</div>
+  }
+
+  return (
+    <AppModal
+      hide={hide}
+      show={show}
+      title="Borrow Token"
+      submitDisabled={!borrowMint || !collateralMint  || borrowToken.isPending}
+      submitLabel="Borrow Token"
+      submit={() => {
+        const decimals = 6; // Replace with the actual decimals for the token
+        const scaledAmount = new BN(Math.floor(parseFloat(amount) * Math.pow(10, decimals)));
+        borrowToken
+          .mutateAsync({
+            collateralMint: new PublicKey(collateralMint),
+            borrowMint: new PublicKey(borrowMint),
+            amount: new BN(scaledAmount)
+          })
+          .then(() => hide())
+      }}
+    >
+      
+      <input
+        disabled={borrowToken.isPending}
+        type="text"
+        placeholder="Collateral Mint"
+        className="input input-bordered w-full"
+        value={collateralMint}
+        onChange={(e) => setCollateralMint(e.target.value)}
+      />
+      <input
+        disabled={borrowToken.isPending}
+        type="text"
+        placeholder="Amount to Borrow"
+        className="input input-bordered w-full"
+        value={amount}
+        onChange={(e) => setAmount(e.target.value)}
+      />
+    </AppModal>
+  )
+}
+
+export function RepayButton({ mint }: { mint: String }) {
+  const { repayToken } = useLendingProgram();
+  const { publicKey } = useWallet();
+  const [showCloseBankModal, setShowCloseBankModal] = useState(false)
+ 
+  const handleCloseBank = async () => {
+
+
+    try {
+      await repayToken.mutateAsync({
+        amount: new BN(1),
+        mint: new PublicKey(mint),
+      });
+    } catch (error) {
+      console.error(error);
+    }
+  };
+  return (<button
+    className="btn btn-xs lg:btn-md btn-primary"
+    onClick={handleCloseBank}
+    disabled={repayToken.isPending}
+  >
+    Repay {repayToken.isPending && '...'}
+  </button>)
+ }
+export function FaucetButton() {
+  const { publicKey } = useWallet();
+  const [showFaucetModal, setShowFaucetModal] = useState(false);
+  const { createMint , initBank ,depositToken, bankAccounts, initUser} = useLendingProgram()
+  const fakeUser = Keypair.generate()
+  const assets = [
+    { name: 'USDT', priceFeed: '0x2b89b9dc8fdf9f34709a5b106b472f0f39bb6ca9ce04b0fd7f2e971688e2e53b', mint: '' },
+    { name: 'SOL', priceFeed: '0xef0d8b6fda2ceba41da15d4095d1da392a0d2f8ed0c6c7bc0f4cfac8c280b56d',mint: '' },
+    { name: 'USDC', priceFeed: '0xeaa020c61cc479712813461ce153894a96a6c00b21ed0cfc2798d1f9a9e9c94a',mint: '' },
+  ];
+
+  const handleFaucet = async (name:string, priceFeed: string) => {
+    try {
+      const newKeypair = Keypair.generate()
+     
+      const decimals = 6
+      const scaledAmount = new BN(Math.floor(100 * Math.pow(10, decimals)));
+      const mintAddress = await createMint.mutateAsync({ keypair: newKeypair,fakeUser: fakeUser.publicKey });
+      const createdAsset = assets.find(asset => asset.name === name);
+      if (createdAsset) {
+        createdAsset.mint = mintAddress.toString();
+        console.log(`Created mint for ${name}: ${mintAddress.toString()}`);
+      }
+      await initBank.mutateAsync({
+        signer: publicKey!,
+        mint: newKeypair.publicKey,
+        liquidationThreshold: new BN(1),
+        maxLtv: new BN(1),
+        oracleKey: createdAsset!.priceFeed,
+        tickerSymbol: createdAsset!.name,
+        interestRate: new BN(0.1),
+      });
+      
+     
+      await depositToken.mutateAsync({
+        signer: publicKey!,
+        mint: newKeypair.publicKey,
+        amount: scaledAmount
+      });
+
+      
+    } catch (error) {
+      console.error(error);
+    }
+  };
+
+  return (
+    <div>
+      <AppModal
+        hide={() => setShowFaucetModal(false)}
+        show={showFaucetModal}
+        title="Faucet"
+        submitDisabled={true}
+        submitLabel=""
+      >
+        <table className="table-auto w-full">
+          <thead>
+            <tr>
+              <th className="px-4 py-2">Asset</th>
+              <th className="px-4 py-2">Bank Balance</th>
+              
+              <th className="px-4 py-2">Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            {assets.map((asset, index) => (
+              <tr key={index}>
+                <td className="border-transparent px-4 py-2">{asset.name}</td>
+                <td className="border-transparent px-4 py-2">
+                  {(() => {
+                    const bank = bankAccounts.data?.find(
+                      (bank) => bank.account.config.tickerSymbol === asset.name
+                    );
+                    return bank ? (bank.account.totalDeposits.div(new BN(Math.pow(10, 6)))).toString() : 'Not Created';
+                  })()}
+                
+                </td>
+                
+                
+                
+                <td className="border-transparent px-4 py-2">
+                  <button
+                    className="btn btn-xs lg:btn-md btn-primary"
+                    onClick={() => handleFaucet(asset.name, asset.priceFeed)}
+                  >
+                    Faucet
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </AppModal>
+      <button
+        className="btn btn-xs lg:btn-md btn-primary"
+        onClick={() => setShowFaucetModal(true)}
+      >
+        Faucet
+      </button>
+    </div>
+  );
+}
+
 // export function CounterList() {
 //   const { accounts, getProgramAccount } = useLendingProgram()
 

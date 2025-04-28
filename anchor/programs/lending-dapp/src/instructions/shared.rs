@@ -26,11 +26,14 @@ pub fn transfer_tokens<'info>(
 
 pub fn calculate_accrued_interest(
     deposited: u64,
-    interest_rate: u64,
+    interest_rate: f64,
     last_updated: i64,
 ) -> Result<u64> {
+    let seconds_per_hour = 60.0 * 60.0;
+    let per_second_rate = (interest_rate) / seconds_per_hour;
     let current_time = Clock::get()?.unix_timestamp;
     let time_elapsed = current_time - last_updated;
-    let new_value = (deposited as f64 * E.powf(interest_rate as f64 * time_elapsed as f64)) as u64;
+    let new_value = (deposited as f64 * E.powf(per_second_rate * time_elapsed as f64)) as u64;
+
     Ok(new_value)
 }

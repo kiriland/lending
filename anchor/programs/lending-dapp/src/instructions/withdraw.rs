@@ -54,20 +54,26 @@ pub fn process_withdraw(
     let user = &mut context.accounts.user_account;
     let bank_address = &context.accounts.bank.key();
     let bank = &mut context.accounts.bank;
-    let last_updated_deposit = user.last_updated_deposit;
+    let decimals = context.accounts.mint.decimals;
     let balance = user
         .get_balance(bank_address)
         .unwrap();
+    let last_updated_deposit = balance.last_updated_deposit;
     let deposited_value = balance.deposited;
     let time_diff = last_updated_deposit - Clock::get()?.unix_timestamp;
-    bank.total_deposits = (bank.total_deposits as f64 * E.powf(bank.interest_rate as f64 * time_diff as f64)) as u64;
+    
+    let share_price = bank.total_deposits
+    .checked_mul(decimals as u64)
+    .unwrap()
+    .checked_div(bank.total_deposits_shares)
+    .unwrap();
 
-    let value_per_share = bank.total_deposits as f64 / bank.total_deposits_shares as f64;
-
-    let user_value = deposited_value as f64 / value_per_share;
-    if user_value < amount as f64 {
-        return Err(ErrorCode::InsufficientFunds.into());
-    }
+    let shares_to_burn = amount
+        .checked_mul(decimals as u64)
+        .unwrap()
+        .checked_div(share_price as u64)
+        .unwrap();
+    require!(balance.deposited_shares >= shares_to_burn, ErrorCode::InsufficientFunds);
 
     let seeds = &[
         b"treasury",
@@ -94,14 +100,12 @@ pub fn process_withdraw(
 
 
     
-    let shares_to_remove = (amount as f64  / bank.total_deposits as f64) * bank.total_deposits_shares as f64;
-    
     balance.deposited -= amount;
-    balance.deposited_shares -= shares_to_remove as u64;
+    balance.deposited_shares -= shares_to_burn as u64;
     
 
     bank.total_deposits -= amount;
-    bank.total_deposits_shares -= shares_to_remove as u64;
+    bank.total_deposits_shares -= shares_to_burn as u64;
     Ok(())
 }
 
